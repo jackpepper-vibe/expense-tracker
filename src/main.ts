@@ -74,7 +74,7 @@ async function generatePDF(setup: TripSetup, receipts: Receipt[]): Promise<strin
   const head = [['#', 'Date', 'Location', 'Description', ...CAT_SHORT, 'Total']];
   const body = receipts.map(r => {
     const cats = COL_ORDER.map(cat => r.category === cat ? `€${r.amount.toFixed(2)}` : '');
-    return [r.no, fmtDateDisplay(r.date), r.location, r.description, ...cats, `€${r.amount.toFixed(2)}`];
+    return [r.no, fmtDateDisplay(r.date), r.location, setup.businessPurpose, ...cats, `€${r.amount.toFixed(2)}`];
   });
 
   const totals = COL_ORDER.map(cat =>
@@ -134,10 +134,10 @@ async function generatePDF(setup: TripSetup, receipts: Receipt[]): Promise<strin
     doc.text(`${fmtDateDisplay(r.date)}  |  ${r.location}`, 10, 17);
     doc.text(`€${r.amount.toFixed(2)}`, RPW - 10, 17, { align: 'right' });
 
-    // Description
+    // Business purpose (trip-level, same for all receipts)
     doc.setTextColor(30, 30, 30);
     doc.setFontSize(9);
-    const descLines = doc.splitTextToSize(r.description, RPW - 20);
+    const descLines = doc.splitTextToSize(setup.businessPurpose, RPW - 20);
     doc.text(descLines, 10, 30);
     const descEnd = 30 + descLines.length * 5;
 
@@ -194,6 +194,10 @@ function setupHTML(): string {
             <label class="field-label">Trip Name</label>
             <input class="field-input" id="inp-trip" type="text" placeholder="e.g. Paris Feb 2026" />
           </div>
+          <div class="field-group">
+            <label class="field-label">Business Purpose &amp; Details</label>
+            <textarea class="field-input field-textarea" id="inp-purpose" placeholder="e.g. Client site visits and meetings"></textarea>
+          </div>
           <button class="btn-primary" id="btn-start">Start Trip</button>
         </div>
       </div>
@@ -202,12 +206,13 @@ function setupHTML(): string {
 
 function wireSetup(): void {
   document.getElementById('btn-start')!.addEventListener('click', () => {
-    const name  = (document.getElementById('inp-name')  as HTMLInputElement).value.trim();
-    const email = (document.getElementById('inp-email') as HTMLInputElement).value.trim();
-    const tripName = (document.getElementById('inp-trip') as HTMLInputElement).value.trim();
-    if (!name || !email || !tripName) { showToast('Please fill in all fields'); return; }
+    const name            = (document.getElementById('inp-name')    as HTMLInputElement).value.trim();
+    const email           = (document.getElementById('inp-email')   as HTMLInputElement).value.trim();
+    const tripName        = (document.getElementById('inp-trip')    as HTMLInputElement).value.trim();
+    const businessPurpose = (document.getElementById('inp-purpose') as HTMLTextAreaElement).value.trim();
+    if (!name || !email || !tripName || !businessPurpose) { showToast('Please fill in all fields'); return; }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showToast('Enter a valid email address'); return; }
-    trip = { name, email, tripName, createdAt: new Date().toISOString() };
+    trip = { name, email, tripName, businessPurpose, createdAt: new Date().toISOString() };
     saveTrip(trip);
     render();
   });
@@ -243,7 +248,6 @@ function mainHTML(): string {
                 <span class="receipt-no">#${r.no}</span>
                 <span class="receipt-date">${fmtDateDisplay(r.date)}</span>
               </div>
-              <div class="receipt-desc">${r.description}</div>
               <div class="receipt-loc">${r.location}</div>
               <span class="receipt-cat" style="color:${col.text};background:${col.bg}">${CAT_LABELS[r.category]}</span>
             </div>
@@ -414,11 +418,10 @@ function sheetHTML(): string {
       </div>
       <div class="field-group">
         <label class="field-label">Location</label>
-        <input class="field-input" id="inp-location" type="text" placeholder="City or venue" value="${draft.location ?? ''}" />
-      </div>
-      <div class="field-group">
-        <label class="field-label">Business Purpose &amp; Details</label>
-        <textarea class="field-input field-textarea" id="inp-desc" placeholder="Describe the business purpose…">${draft.description ?? ''}</textarea>
+        <input class="field-input" id="inp-location" type="text" list="location-list" placeholder="City or venue" value="${draft.location ?? ''}" autocomplete="off" />
+        <datalist id="location-list">
+          ${[...new Set(receipts.map(r => r.location).filter(Boolean))].map(l => `<option value="${l}"></option>`).join('')}
+        </datalist>
       </div>
       <div class="field-group">
         <label class="field-label">Category</label>
@@ -439,10 +442,8 @@ function sheetHTML(): string {
 function wireSheet(): void {
   document.getElementById('sheet-close')!.addEventListener('click', closeSheet);
 
-  const photoZone  = document.getElementById('photo-zone')!;
   const photoInput = document.getElementById('photo-input') as HTMLInputElement;
 
-  photoZone.addEventListener('click', () => photoInput.click());
   photoInput.addEventListener('change', async () => {
     const file = photoInput.files?.[0];
     if (!file) return;
@@ -472,9 +473,6 @@ function wireSheet(): void {
   document.getElementById('inp-location')!.addEventListener('input', (e) => {
     draft.location = (e.target as HTMLInputElement).value;
   });
-  document.getElementById('inp-desc')!.addEventListener('input', (e) => {
-    draft.description = (e.target as HTMLTextAreaElement).value;
-  });
   document.getElementById('inp-amount')!.addEventListener('input', (e) => {
     draft.amount = parseFloat((e.target as HTMLInputElement).value) || 0;
   });
@@ -493,13 +491,11 @@ function wireSheet(): void {
 function saveReceipt(): void {
   const date     = (document.getElementById('inp-date')     as HTMLInputElement).value;
   const location = (document.getElementById('inp-location') as HTMLInputElement).value.trim();
-  const desc     = (document.getElementById('inp-desc')     as HTMLTextAreaElement).value.trim();
   const amount   = parseFloat((document.getElementById('inp-amount') as HTMLInputElement).value);
 
-  if (!date)                      { showToast('Please enter a date');           return; }
-  if (!location)                  { showToast('Please enter a location');        return; }
-  if (!desc)                      { showToast('Please add a description');       return; }
-  if (!draft.category)             { showToast('Please select a category');       return; }
+  if (!date)                        { showToast('Please enter a date');          return; }
+  if (!location)                    { showToast('Please enter a location');       return; }
+  if (!draft.category)              { showToast('Please select a category');      return; }
   if (isNaN(amount) || amount <= 0) { showToast('Please enter a valid amount');  return; }
   const hasFile = draft.fileType === 'pdf' ? !!draft.pdfDataUrl : !!draft.imageDataUrl;
   if (!hasFile) { showToast('Please attach a receipt or document'); return; }
@@ -516,12 +512,12 @@ function saveReceipt(): void {
   if (editingId) {
     const idx = receipts.findIndex(r => r.id === editingId);
     if (idx !== -1) {
-      receipts[idx] = { ...receipts[idx], date, location, description: desc, category: draft.category!, amount, ...fileFields };
+      receipts[idx] = { ...receipts[idx], date, location, category: draft.category!, amount, ...fileFields };
     }
   } else {
     const newReceipt: Receipt = {
       id: crypto.randomUUID(), no: nextReceiptNo(receipts),
-      date, location, description: desc, category: draft.category!, amount,
+      date, location, category: draft.category!, amount,
       ...fileFields,
     };
     receipts.push(newReceipt);

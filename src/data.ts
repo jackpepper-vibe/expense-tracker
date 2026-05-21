@@ -1,8 +1,9 @@
 export interface TripSetup {
-  name:      string;   // person's name (for report header)
-  email:     string;   // where to send the report
-  tripName:  string;   // reference label e.g. "Paris Feb 2026"
-  createdAt: string;
+  name:            string;   // person's name (for report header)
+  email:           string;   // where to send the report
+  tripName:        string;   // reference label e.g. "Paris Feb 2026"
+  businessPurpose: string;   // used in every CSV row's "Business Purpose & Details" column
+  createdAt:       string;
 }
 
 export interface Receipt {
@@ -10,7 +11,6 @@ export interface Receipt {
   no:            number;
   date:          string;  // YYYY-MM-DD
   location:      string;
-  description:   string;  // Business purpose & details
   category:      ExpenseCategory;
   amount:        number;
   imageDataUrl:  string;  // compressed JPEG base64 (or empty string when fileType=pdf)
@@ -138,7 +138,7 @@ function esc(s: string | number): string {
 export function generateCSV(setup: TripSetup, receipts: Receipt[]): string {
   const rows = receipts.map(r => {
     const cols = COL_ORDER.map(cat => r.category === cat ? r.amount.toFixed(2) : '');
-    return [r.no, fmtDateCSV(r.date), esc(r.location), esc(r.description), ...cols, r.amount.toFixed(2)].join(',');
+    return [r.no, fmtDateCSV(r.date), esc(r.location), esc(setup.businessPurpose), ...cols, r.amount.toFixed(2)].join(',');
   });
 
   const totals = COL_ORDER.map(cat =>
