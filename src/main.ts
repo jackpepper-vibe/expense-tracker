@@ -161,6 +161,18 @@ async function generatePDF(setup: TripSetup, receipts: Receipt[]): Promise<strin
   return doc.output('datauristring');
 }
 
+// ── Category matching ──────────────────────────────────────────────────────────
+
+function matchCategory(raw: string | null | undefined): ExpenseCategory | undefined {
+  if (!raw) return undefined;
+  const lower = raw.toLowerCase().trim();
+  // Exact match (case-insensitive)
+  const exact = CATEGORIES.find(c => c.toLowerCase() === lower);
+  if (exact) return exact;
+  // Partial: any category whose first word appears in the response
+  return CATEGORIES.find(c => lower.includes(c.split(/[\s/]/)[0].toLowerCase()));
+}
+
 // ── State ──────────────────────────────────────────────────────────────────────
 
 let trip = loadTrip();
@@ -498,7 +510,8 @@ function wireSheet(): void {
         if (data.amount)   draft.amount   = data.amount;
         if (data.location) draft.location = data.location;
         if (data.nature)   draft.nature   = data.nature;
-        if (data.category) draft.category = data.category as ExpenseCategory;
+        const cat = matchCategory(data.category);
+        if (cat) draft.category = cat;
       } else {
         showToast(data.error === 'API key not configured'
           ? 'AI analysis not set up — fill in fields manually'
