@@ -196,10 +196,6 @@ function setupHTML(): string {
             <label class="field-label">Trip Name</label>
             <input class="field-input" id="inp-trip" type="text" placeholder="e.g. Paris Feb 2026" />
           </div>
-          <div class="field-group">
-            <label class="field-label">Business Purpose &amp; Details</label>
-            <textarea class="field-input field-textarea" id="inp-purpose" placeholder="e.g. Client site visits and meetings"></textarea>
-          </div>
           <button class="btn-primary" id="btn-start">Start Trip</button>
         </div>
       </div>
@@ -210,11 +206,10 @@ function wireSetup(): void {
   document.getElementById('btn-start')!.addEventListener('click', () => {
     const name            = (document.getElementById('inp-name')    as HTMLInputElement).value.trim();
     const email           = (document.getElementById('inp-email')   as HTMLInputElement).value.trim();
-    const tripName        = (document.getElementById('inp-trip')    as HTMLInputElement).value.trim();
-    const businessPurpose = (document.getElementById('inp-purpose') as HTMLTextAreaElement).value.trim();
-    if (!name || !email || !tripName || !businessPurpose) { showToast('Please fill in all fields'); return; }
+    const tripName = (document.getElementById('inp-trip') as HTMLInputElement).value.trim();
+    if (!name || !email || !tripName) { showToast('Please fill in all fields'); return; }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showToast('Enter a valid email address'); return; }
-    trip = { name, email, tripName, businessPurpose, createdAt: new Date().toISOString() };
+    trip = { name, email, tripName, businessPurpose: tripName, createdAt: new Date().toISOString() };
     saveTrip(trip);
     render();
   });
@@ -481,9 +476,10 @@ function wireSheet(): void {
       draft.pdfFileName  = undefined;
     }
 
-    // Show file preview immediately, then spin while Claude reads it
+    // Show preview + spinner, guarantee browser paints before fetch starts
     draft.analysing = true;
     renderSheet();
+    await new Promise<void>(r => requestAnimationFrame(() => r()));
 
     try {
       const body = draft.fileType === 'pdf'
@@ -503,9 +499,13 @@ function wireSheet(): void {
         if (data.location) draft.location = data.location;
         if (data.nature)   draft.nature   = data.nature;
         if (data.category) draft.category = data.category as ExpenseCategory;
+      } else {
+        showToast(data.error === 'API key not configured'
+          ? 'AI analysis not set up — fill in fields manually'
+          : 'Could not read receipt — fill in manually');
       }
     } catch {
-      // Silent fail — user fills in manually
+      showToast('Could not read receipt — fill in manually');
     }
 
     draft.analysing = false;
