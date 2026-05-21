@@ -636,8 +636,8 @@ async function sendReport(): Promise<void> {
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: 'Unknown error' }));
-      throw new Error(err.error ?? `HTTP ${res.status}`);
+      const err = await res.json().catch(() => null);
+      throw new Error(err?.error ?? `HTTP ${res.status}`);
     }
 
     overlay.hidden = true;
