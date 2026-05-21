@@ -1,0 +1,13 @@
+{
+  "name": "Expense Tracker",
+  "short_name": "Expenses",
+  "description": "Track and manage your expenses",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0f1e",
+  "theme_color": "#0a0f1e",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "/expense_tracker_app_icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
