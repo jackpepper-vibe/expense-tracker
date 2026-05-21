@@ -11,6 +11,7 @@ export interface Receipt {
   no:            number;
   date:          string;  // YYYY-MM-DD
   location:      string;
+  nature:        string;  // Nature of expenditure — what was bought
   category:      ExpenseCategory;
   amount:        number;
   imageDataUrl:  string;  // compressed JPEG base64 (or empty string when fileType=pdf)
@@ -138,7 +139,8 @@ function esc(s: string | number): string {
 export function generateCSV(setup: TripSetup, receipts: Receipt[]): string {
   const rows = receipts.map(r => {
     const cols = COL_ORDER.map(cat => r.category === cat ? r.amount.toFixed(2) : '');
-    return [r.no, fmtDateCSV(r.date), esc(r.location), esc(setup.businessPurpose), ...cols, r.amount.toFixed(2)].join(',');
+    const desc = [setup.businessPurpose, r.nature].filter(Boolean).join(' — ');
+    return [r.no, fmtDateCSV(r.date), esc(r.location), esc(desc), ...cols, r.amount.toFixed(2)].join(',');
   });
 
   const totals = COL_ORDER.map(cat =>

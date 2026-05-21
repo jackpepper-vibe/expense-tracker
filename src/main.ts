@@ -74,7 +74,8 @@ async function generatePDF(setup: TripSetup, receipts: Receipt[]): Promise<strin
   const head = [['#', 'Date', 'Location', 'Description', ...CAT_SHORT, 'Total']];
   const body = receipts.map(r => {
     const cats = COL_ORDER.map(cat => r.category === cat ? `€${r.amount.toFixed(2)}` : '');
-    return [r.no, fmtDateDisplay(r.date), r.location, setup.businessPurpose, ...cats, `€${r.amount.toFixed(2)}`];
+    const desc = r.nature ? `${setup.businessPurpose} — ${r.nature}` : setup.businessPurpose;
+    return [r.no, fmtDateDisplay(r.date), r.location, desc, ...cats, `€${r.amount.toFixed(2)}`];
   });
 
   const totals = COL_ORDER.map(cat =>
@@ -134,10 +135,11 @@ async function generatePDF(setup: TripSetup, receipts: Receipt[]): Promise<strin
     doc.text(`${fmtDateDisplay(r.date)}  |  ${r.location}`, 10, 17);
     doc.text(`€${r.amount.toFixed(2)}`, RPW - 10, 17, { align: 'right' });
 
-    // Business purpose (trip-level, same for all receipts)
+    // Description: business purpose + nature of expenditure
     doc.setTextColor(30, 30, 30);
     doc.setFontSize(9);
-    const descLines = doc.splitTextToSize(setup.businessPurpose, RPW - 20);
+    const descText  = r.nature ? `${setup.businessPurpose} — ${r.nature}` : setup.businessPurpose;
+    const descLines = doc.splitTextToSize(descText, RPW - 20);
     doc.text(descLines, 10, 30);
     const descEnd = 30 + descLines.length * 5;
 
@@ -163,7 +165,7 @@ async function generatePDF(setup: TripSetup, receipts: Receipt[]): Promise<strin
 
 let trip = loadTrip();
 let receipts = loadReceipts();
-let draft: Partial<Receipt> & { imageDataUrl?: string } = {};
+let draft: Partial<Receipt> & { analysing?: boolean } = {};
 let editingId: string | null = null;
 // ── Render ─────────────────────────────────────────────────────────────────────
 
@@ -249,6 +251,7 @@ function mainHTML(): string {
                 <span class="receipt-date">${fmtDateDisplay(r.date)}</span>
               </div>
               <div class="receipt-loc">${r.location}</div>
+              ${r.nature ? `<div class="receipt-nature">${r.nature}</div>` : ''}
               <span class="receipt-cat" style="color:${col.text};background:${col.bg}">${CAT_LABELS[r.category]}</span>
             </div>
             <div class="receipt-amount">€${r.amount.toFixed(2)}</div>
@@ -409,7 +412,14 @@ function sheetHTML(): string {
                  <span>Photo, screenshot, or PDF</span>
                </div>`
         }
-        <input type="file" accept="image/*,application/pdf" id="photo-input" class="photo-input" />
+        ${draft.analysing
+          ? `<div class="photo-analysing-overlay">
+               <div class="photo-spin"></div>
+               <span>Reading receipt…</span>
+             </div>`
+          : ''
+        }
+        <input type="file" accept="image/*,application/pdf" id="photo-input" class="photo-input" ${draft.analysing ? 'disabled' : ''} />
       </div>
 
       <div class="field-group">
@@ -422,6 +432,10 @@ function sheetHTML(): string {
         <datalist id="location-list">
           ${[...new Set(receipts.map(r => r.location).filter(Boolean))].map(l => `<option value="${l}"></option>`).join('')}
         </datalist>
+      </div>
+      <div class="field-group">
+        <label class="field-label">Nature of Expenditure</label>
+        <input class="field-input" id="inp-nature" type="text" placeholder="e.g. Dinner with client, Taxi to airport" value="${draft.nature ?? ''}" />
       </div>
       <div class="field-group">
         <label class="field-label">Category</label>
@@ -447,8 +461,10 @@ function wireSheet(): void {
   photoInput.addEventListener('change', async () => {
     const file = photoInput.files?.[0];
     if (!file) return;
+
+    // Store the file data
     if (file.type === 'application/pdf') {
-      const dataUrl = await readFileAsDataUrl(file);
+      const dataUrl     = await readFileAsDataUrl(file);
       draft.fileType    = 'pdf';
       draft.pdfDataUrl  = dataUrl;
       draft.pdfFileName = file.name;
@@ -456,14 +472,43 @@ function wireSheet(): void {
       draft.imageWidth   = 0;
       draft.imageHeight  = 0;
     } else {
-      const result = await compressImage(file);
-      draft.fileType    = 'image';
+      const result       = await compressImage(file);
+      draft.fileType     = 'image';
       draft.imageDataUrl = result.dataUrl;
       draft.imageWidth   = result.width;
       draft.imageHeight  = result.height;
       draft.pdfDataUrl   = undefined;
       draft.pdfFileName  = undefined;
     }
+
+    // Show file preview immediately, then spin while Claude reads it
+    draft.analysing = true;
+    renderSheet();
+
+    try {
+      const body = draft.fileType === 'pdf'
+        ? { pdfBase64: draft.pdfDataUrl!.split(',')[1] }
+        : { imageBase64: draft.imageDataUrl!.split(',')[1], mediaType: 'image/jpeg' };
+
+      const res  = await fetch('/api/analyse-receipt', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(body),
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        if (data.date)     draft.date     = data.date;
+        if (data.amount)   draft.amount   = data.amount;
+        if (data.location) draft.location = data.location;
+        if (data.nature)   draft.nature   = data.nature;
+        if (data.category) draft.category = data.category as ExpenseCategory;
+      }
+    } catch {
+      // Silent fail — user fills in manually
+    }
+
+    draft.analysing = false;
     renderSheet();
   });
 
@@ -472,6 +517,9 @@ function wireSheet(): void {
   });
   document.getElementById('inp-location')!.addEventListener('input', (e) => {
     draft.location = (e.target as HTMLInputElement).value;
+  });
+  document.getElementById('inp-nature')!.addEventListener('input', (e) => {
+    draft.nature = (e.target as HTMLInputElement).value;
   });
   document.getElementById('inp-amount')!.addEventListener('input', (e) => {
     draft.amount = parseFloat((e.target as HTMLInputElement).value) || 0;
@@ -491,6 +539,7 @@ function wireSheet(): void {
 function saveReceipt(): void {
   const date     = (document.getElementById('inp-date')     as HTMLInputElement).value;
   const location = (document.getElementById('inp-location') as HTMLInputElement).value.trim();
+  const nature   = (document.getElementById('inp-nature')   as HTMLInputElement).value.trim();
   const amount   = parseFloat((document.getElementById('inp-amount') as HTMLInputElement).value);
 
   if (!date)                        { showToast('Please enter a date');          return; }
@@ -512,12 +561,12 @@ function saveReceipt(): void {
   if (editingId) {
     const idx = receipts.findIndex(r => r.id === editingId);
     if (idx !== -1) {
-      receipts[idx] = { ...receipts[idx], date, location, category: draft.category!, amount, ...fileFields };
+      receipts[idx] = { ...receipts[idx], date, location, nature, category: draft.category!, amount, ...fileFields };
     }
   } else {
     const newReceipt: Receipt = {
       id: crypto.randomUUID(), no: nextReceiptNo(receipts),
-      date, location, category: draft.category!, amount,
+      date, location, nature, category: draft.category!, amount,
       ...fileFields,
     };
     receipts.push(newReceipt);

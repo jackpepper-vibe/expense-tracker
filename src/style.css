@@ -375,6 +375,15 @@ body::before {
   margin-bottom: 4px;
 }
 
+.receipt-nature {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 3px;
+}
+
 .receipt-cat {
   display: inline-block;
   font-size: 10px;
@@ -593,6 +602,36 @@ body::before {
 .photo-pdf-hint {
   font-size: 11px;
   color: var(--dim);
+}
+
+.photo-analysing-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(8,13,28,0.82);
+  backdrop-filter: blur(4px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border-radius: 14px;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.photo-analysing-overlay span {
+  font-size: 12px;
+  font-weight: 600;
+  color: #a5b4fc;
+}
+
+.photo-spin {
+  width: 28px;
+  height: 28px;
+  border: 2.5px solid rgba(99,102,241,0.25);
+  border-top-color: #818cf8;
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
 }
 
 /* ── Category grid ──────────────────────────────────── */
