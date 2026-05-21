@@ -794,7 +794,10 @@ body::before {
   font-size: 13px;
   font-weight: 600;
   color: var(--text);
-  white-space: nowrap;
+  white-space: normal;
+  width: max-content;
+  max-width: min(88vw, 420px);
+  text-align: center;
   z-index: 300;
   opacity: 0;
   transition: opacity 0.25s, transform 0.25s;

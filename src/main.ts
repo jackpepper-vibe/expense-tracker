@@ -671,10 +671,11 @@ function showToast(msg: string): void {
   toast.textContent = msg;
   toast.hidden = false;
   toast.classList.add('toast--show');
+  const duration = msg.length > 60 ? 5500 : 2800;
   setTimeout(() => {
     toast.classList.remove('toast--show');
     setTimeout(() => { toast.hidden = true; }, 300);
-  }, 2800);
+  }, duration);
 }
 
 // ── Boot ───────────────────────────────────────────────────────────────────────
