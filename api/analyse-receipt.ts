@@ -1,7 +1,3 @@
-import Anthropic from '@anthropic-ai/sdk';
-
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-
 export const config = { runtime: 'edge' };
 
 const CATEGORIES = [
@@ -42,30 +38,43 @@ export default async function handler(req: Request): Promise<Response> {
     return new Response(JSON.stringify({ error: 'Missing image or PDF data' }), { status: 400 });
   }
 
-  const contentSource: Anthropic.ImageBlockParam | Anthropic.RequestDocumentBlock = pdfBase64
-    ? {
-        type: 'document',
-        source: { type: 'base64', media_type: 'application/pdf', data: pdfBase64 },
-      } as Anthropic.RequestDocumentBlock
-    : {
-        type: 'image',
-        source: { type: 'base64', media_type: (mediaType ?? 'image/jpeg') as Anthropic.Base64ImageSource['media_type'], data: imageBase64! },
-      };
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    return new Response(JSON.stringify({ error: 'API key not configured' }), { status: 500 });
+  }
+
+  const fileBlock = pdfBase64
+    ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: pdfBase64 } }
+    : { type: 'image',    source: { type: 'base64', media_type: mediaType ?? 'image/jpeg', data: imageBase64! } };
 
   try {
-    const message = await client.messages.create({
-      model:      'claude-haiku-4-5',
-      max_tokens: 256,
-      messages:   [{ role: 'user', content: [contentSource, { type: 'text', text: PROMPT }] }],
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key':         apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type':      'application/json',
+      },
+      body: JSON.stringify({
+        model:      'claude-haiku-4-5',
+        max_tokens: 256,
+        messages:   [{ role: 'user', content: [fileBlock, { type: 'text', text: PROMPT }] }],
+      }),
     });
 
-    const text = message.content[0].type === 'text' ? message.content[0].text.trim() : '';
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('No JSON in response');
+    if (!res.ok) {
+      const err = await res.text();
+      return new Response(JSON.stringify({ error: `Anthropic API error: ${res.status}`, detail: err }), { status: 502 });
+    }
 
-    const data = JSON.parse(jsonMatch[0]);
+    const result = await res.json() as { content: { type: string; text: string }[] };
+    const text   = result.content?.[0]?.text?.trim() ?? '';
+    const match  = text.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('No JSON in response');
+
+    const data = JSON.parse(match[0]);
     return new Response(JSON.stringify(data), {
-      status: 200,
+      status:  200,
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (err) {
