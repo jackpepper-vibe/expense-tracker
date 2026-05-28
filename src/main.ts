@@ -7,6 +7,7 @@ import {
   CATEGORIES, CAT_LABELS, CAT_COLOURS,
   type TripSetup, type Receipt, type ExpenseCategory,
 } from './data.ts';
+import { generateExpenseFormXlsx } from './expense-form.ts';
 
 // ── File loading ───────────────────────────────────────────────────────────────
 
@@ -613,6 +614,9 @@ async function sendReport(): Promise<void> {
     const pdfBase64  = pdfDataUri.split(',')[1];
     const csv        = generateCSV(trip!, receipts);
 
+    msg.textContent = 'Generating expense form…';
+    const xlsxBase64 = await generateExpenseFormXlsx(trip!, receipts);
+
     // Collect any PDF receipts as separate attachments
     const pdfAttachments = receipts
       .filter(r => r.fileType === 'pdf' && r.pdfDataUrl)
@@ -630,6 +634,7 @@ async function sendReport(): Promise<void> {
         name:      trip!.name,
         tripName:  trip!.tripName,
         pdfBase64,
+        xlsxBase64,
         csv,
         pdfAttachments,
       }),

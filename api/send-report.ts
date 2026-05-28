@@ -10,6 +10,7 @@ export default async function handler(req: Request): Promise<Response> {
     name: string;
     tripName: string;
     pdfBase64: string;
+    xlsxBase64?: string;
     csv: string;
     pdfAttachments?: { filename: string; base64: string }[];
   };
@@ -20,7 +21,7 @@ export default async function handler(req: Request): Promise<Response> {
     return new Response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400 });
   }
 
-  const { to, name, tripName, pdfBase64, csv, pdfAttachments = [] } = body;
+  const { to, name, tripName, pdfBase64, xlsxBase64, csv, pdfAttachments = [] } = body;
 
   if (!to || !name || !tripName || !pdfBase64 || !csv) {
     return new Response(JSON.stringify({ error: 'Missing required fields' }), { status: 400 });
@@ -40,6 +41,7 @@ export default async function handler(req: Request): Promise<Response> {
 
   const attachments = [
     { filename: `${safeTrip}_expense_report.pdf`, content: pdfBase64 },
+    ...(xlsxBase64 ? [{ filename: `${safeTrip}_expense_form.xlsx`, content: xlsxBase64 }] : []),
     ...pdfAttachments.map(a => ({ filename: a.filename, content: a.base64 })),
   ];
 
@@ -59,7 +61,8 @@ export default async function handler(req: Request): Promise<Response> {
             <h2 style="color:#1d4ed8">Expense Report: ${tripName}</h2>
             <p>Hi ${name.split(' ')[0]},</p>
             <p>Please find attached your expense report for <strong>${tripName}</strong>.</p>
-            <p>The PDF contains all receipt images and a summary table. The CSV below can be pasted directly into the expenses spreadsheet.</p>
+            <p>The <strong>PDF</strong> contains all receipt images and a summary table.</p>
+            <p>The <strong>Excel file</strong> (${safeTrip}_expense_form.xlsx) is the completed expense form ready to submit — open it in Excel, sign the declaration, and forward to your approver.</p>
             ${pdfNote}
             <hr style="border:1px solid #e2e8f0;margin:24px 0"/>
             <h3 style="color:#374151">CSV Summary</h3>
