@@ -53,7 +53,7 @@ export default async function handler(req: Request): Promise<Response> {
         'Content-Type':  'application/json',
       },
       body: JSON.stringify({
-        from:        'Expense Tracker <onboarding@resend.dev>',
+        from:        'Expense Tracker <expenses@ajagbudi.com>',
         to:          [to],
         subject:     `[${tripName}] Expense Report — ${name} — ${date}`,
         html: `
