@@ -226,25 +226,33 @@ function tripsListHTML(): string {
       </div>`;
   }
 
-  const emptyHTML = trips.length === 0
-    ? `<div class="empty-state"><div class="empty-icon">✈️</div><p>No trips yet.<br>Tap + to get started.</p></div>`
-    : '';
-  const activeHTML    = active.length    > 0 ? `<div class="section-header">Active</div>${active.map(tripCard).join('')}`    : '';
-  const submittedHTML = submitted.length > 0 ? `<div class="section-header">Submitted</div>${submitted.map(tripCard).join('')}` : '';
+  const activeHTML    = active.length    > 0 ? `<div class="section-header">Active</div>${active.map(tripCard).join('')}`   : '';
+  const submittedHTML = submitted.length > 0 ? `<div class="section-header">History</div>${submitted.map(tripCard).join('')}` : '';
 
   return `
-    <div class="app-shell">
-      <header class="top-bar">
-        <div class="top-bar-inner">
-          <div class="top-bar-title">Expense Tracker</div>
-          <button class="icon-btn" id="btn-new-trip" title="New Trip">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+    <div class="app-shell trips-screen">
+      <div class="trips-scroll">
+        <div class="trips-hero">
+          <div class="trips-hero-logo">💼</div>
+          <h1 class="trips-hero-title">Expense Tracker</h1>
+          <p class="trips-hero-sub">Track and submit your business expenses</p>
+        </div>
+        <button class="new-trip-btn" id="btn-new-trip">
+          <div class="new-trip-btn-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
               <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
             </svg>
-          </button>
-        </div>
-      </header>
-      <div class="trips-list">${emptyHTML}${activeHTML}${submittedHTML}</div>
+          </div>
+          <div class="new-trip-btn-body">
+            <span class="new-trip-btn-label">New Trip</span>
+            <span class="new-trip-btn-hint">Start tracking your expenses</span>
+          </div>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="opacity:0.35;flex-shrink:0">
+            <polyline points="9 18 15 12 9 6"/>
+          </svg>
+        </button>
+        ${activeHTML}${submittedHTML}
+      </div>
       <div class="toast" id="toast" hidden></div>
     </div>`;
 }
