@@ -193,7 +193,7 @@ let currentTripId: string | null = null;
 let receipts:      Receipt[] = [];
 let draft:         Partial<Receipt> & { analysing?: boolean } = {};
 let editingId:     string | null = null;
-let view:          View = trips.length === 0 ? 'setup' : 'list';
+let view:          View = 'list';
 
 function tripSetup(): TripSetup | null {
   return trips.find(t => t.id === currentTripId)?.setup ?? null;
@@ -409,20 +409,19 @@ function closeSettings(): void {
 // ── Setup screen ───────────────────────────────────────────────────────────────
 
 function setupHTML(): string {
-  const showBack  = trips.length > 0;
   const lastSetup = [...trips].sort((a, b) => b.setup.createdAt.localeCompare(a.setup.createdAt))[0]?.setup;
 
   return `
     <div class="setup-screen">
       <div class="setup-card">
-        ${showBack ? `<button class="setup-back" id="btn-back">
+        <button class="setup-back" id="btn-back">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
             <polyline points="15 18 9 12 15 6"/>
           </svg>
           All Trips
-        </button>` : ''}
+        </button>
         <div class="setup-logo">💼</div>
-        <h1 class="setup-title">${showBack ? 'New Trip' : 'Expense Tracker'}</h1>
+        <h1 class="setup-title">New Trip</h1>
         <p class="setup-sub">Enter your details to start tracking expenses</p>
         <div class="setup-form">
           <div class="field-group">
