@@ -2,7 +2,6 @@ import './style.css';
 import {
   loadTrip, saveTrip, clearTrip,
   loadReceipts, saveReceipts, nextReceiptNo,
-  generateCSV,
   fmtDateDisplay, todayISO,
   CATEGORIES, CAT_LABELS, CAT_COLOURS,
   type TripSetup, type Receipt, type ExpenseCategory,
@@ -612,7 +611,6 @@ async function sendReport(): Promise<void> {
     msg.textContent = 'Generating PDF…';
     const pdfDataUri = await generatePDF(trip!, receipts);
     const pdfBase64  = pdfDataUri.split(',')[1];
-    const csv        = generateCSV(trip!, receipts);
 
     msg.textContent = 'Generating expense form…';
     const xlsxBase64 = await generateExpenseFormXlsx(trip!, receipts);
@@ -635,7 +633,6 @@ async function sendReport(): Promise<void> {
         tripName:  trip!.tripName,
         pdfBase64,
         xlsxBase64,
-        csv,
         pdfAttachments,
       }),
     });
