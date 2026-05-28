@@ -61,32 +61,40 @@ export const CAT_COLOURS: Record<ExpenseCategory, { text: string; bg: string }> 
   'Other':                  { text: '#94a3b8', bg: 'rgba(71,85,105,0.25)' },
 };
 
+export interface StoredTrip {
+  id:           string;
+  setup:        TripSetup;
+  receipts:     Receipt[];
+  status:       'active' | 'submitted';
+  submittedAt?: string;
+}
+
 // ── localStorage ─────────────────────────────────────────────────────────────
 
-const TRIP_KEY    = 'et_trip_v1';
+const TRIPS_KEY   = 'et_trips_v2';
+const TRIP_KEY    = 'et_trip_v1';    // v1 keys kept for migration only
 const RECEIPT_KEY = 'et_receipts_v1';
 
-export function loadTrip(): TripSetup | null {
-  try { return JSON.parse(localStorage.getItem(TRIP_KEY) ?? 'null'); }
-  catch { return null; }
+export function loadTrips(): StoredTrip[] {
+  try {
+    const stored = localStorage.getItem(TRIPS_KEY);
+    if (stored) return JSON.parse(stored) as StoredTrip[];
+    // One-time migration from v1 single-trip format
+    const v1Trip = localStorage.getItem(TRIP_KEY);
+    if (v1Trip) {
+      const setup: TripSetup = JSON.parse(v1Trip);
+      const v1Receipts = localStorage.getItem(RECEIPT_KEY);
+      const receipts: Receipt[] = v1Receipts ? JSON.parse(v1Receipts) : [];
+      const migrated: StoredTrip[] = [{ id: crypto.randomUUID(), setup, receipts, status: 'active' }];
+      localStorage.setItem(TRIPS_KEY, JSON.stringify(migrated));
+      return migrated;
+    }
+    return [];
+  } catch { return []; }
 }
 
-export function saveTrip(t: TripSetup): void {
-  localStorage.setItem(TRIP_KEY, JSON.stringify(t));
-}
-
-export function clearTrip(): void {
-  localStorage.removeItem(TRIP_KEY);
-  localStorage.removeItem(RECEIPT_KEY);
-}
-
-export function loadReceipts(): Receipt[] {
-  try { return JSON.parse(localStorage.getItem(RECEIPT_KEY) ?? '[]'); }
-  catch { return []; }
-}
-
-export function saveReceipts(r: Receipt[]): void {
-  localStorage.setItem(RECEIPT_KEY, JSON.stringify(r));
+export function saveTrips(trips: StoredTrip[]): void {
+  localStorage.setItem(TRIPS_KEY, JSON.stringify(trips));
 }
 
 export function nextReceiptNo(receipts: Receipt[]): number {

@@ -1,10 +1,9 @@
 import './style.css';
 import {
-  loadTrip, saveTrip, clearTrip,
-  loadReceipts, saveReceipts, nextReceiptNo,
+  loadTrips, saveTrips, nextReceiptNo,
   fmtDateDisplay, todayISO,
   CATEGORIES, CAT_LABELS, CAT_COLOURS,
-  type TripSetup, type Receipt, type ExpenseCategory,
+  type StoredTrip, type TripSetup, type Receipt, type ExpenseCategory,
 } from './data.ts';
 import { generateExpenseFormXlsx } from './expense-form.ts';
 
@@ -46,15 +45,13 @@ async function compressImage(file: File): Promise<{ dataUrl: string; width: numb
 
 // ── PDF generation ─────────────────────────────────────────────────────────────
 
-async function generatePDF(setup: TripSetup, receipts: Receipt[]): Promise<string> {
+async function generatePDF(setup: TripSetup, rs: Receipt[]): Promise<string> {
   const { jsPDF } = await import('jspdf');
   const { default: autoTable } = await import('jspdf-autotable');
 
-  // ── Summary page (landscape A4) ──────────────────────────────────────────────
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
   const PW = 297;
 
-  // Header band
   doc.setFillColor(10, 15, 30);
   doc.rect(0, 0, PW, 18, 'F');
   doc.setTextColor(255, 255, 255);
@@ -72,16 +69,16 @@ async function generatePDF(setup: TripSetup, receipts: Receipt[]): Promise<strin
   ];
 
   const head = [['#', 'Date', 'Location', 'Description', ...CAT_SHORT, 'Total']];
-  const body = receipts.map(r => {
+  const body = rs.map(r => {
     const cats = COL_ORDER.map(cat => r.category === cat ? `€${r.amount.toFixed(2)}` : '');
     const desc = r.nature ? `${setup.businessPurpose} — ${r.nature}` : setup.businessPurpose;
     return [r.no, fmtDateDisplay(r.date), r.location, desc, ...cats, `€${r.amount.toFixed(2)}`];
   });
 
   const totals = COL_ORDER.map(cat =>
-    receipts.filter(r => r.category === cat).reduce((s, r) => s + r.amount, 0)
+    rs.filter(r => r.category === cat).reduce((s, r) => s + r.amount, 0)
   );
-  const grand = receipts.reduce((s, r) => s + r.amount, 0);
+  const grand = rs.reduce((s, r) => s + r.amount, 0);
   body.push(['', '', '', 'TOTAL', ...totals.map(t => t > 0 ? `€${t.toFixed(2)}` : ''), `€${grand.toFixed(2)}`]);
 
   autoTable(doc, {
@@ -105,7 +102,6 @@ async function generatePDF(setup: TripSetup, receipts: Receipt[]): Promise<strin
     },
   });
 
-  // ── Receipt pages (portrait A4) ──────────────────────────────────────────────
   const RPW = 210, RPH = 297;
   const ACCENT: Record<ExpenseCategory, [number, number, number]> = {
     'Air Fares':               [96,  165, 250],
@@ -118,12 +114,10 @@ async function generatePDF(setup: TripSetup, receipts: Receipt[]): Promise<strin
     'Other':                   [148, 163, 184],
   };
 
-  for (const r of receipts) {
+  for (const r of rs) {
     doc.addPage('a4', 'portrait');
-
     const col = ACCENT[r.category] ?? [100, 100, 100];
 
-    // Header strip
     doc.setFillColor(...col);
     doc.rect(0, 0, RPW, 22, 'F');
     doc.setTextColor(10, 15, 30);
@@ -135,7 +129,6 @@ async function generatePDF(setup: TripSetup, receipts: Receipt[]): Promise<strin
     doc.text(`${fmtDateDisplay(r.date)}  |  ${r.location}`, 10, 17);
     doc.text(`€${r.amount.toFixed(2)}`, RPW - 10, 17, { align: 'right' });
 
-    // Description: business purpose + nature of expenditure
     doc.setTextColor(30, 30, 30);
     doc.setFontSize(9);
     const descText  = r.nature ? `${setup.businessPurpose} — ${r.nature}` : setup.businessPurpose;
@@ -143,7 +136,6 @@ async function generatePDF(setup: TripSetup, receipts: Receipt[]): Promise<strin
     doc.text(descLines, 10, 30);
     const descEnd = 30 + descLines.length * 5;
 
-    // Receipt image or PDF note
     const IMG_MAX_W = RPW - 20, IMG_MAX_H = RPH - descEnd - 20;
     if (r.fileType === 'pdf') {
       doc.setFontSize(9);
@@ -166,43 +158,141 @@ async function generatePDF(setup: TripSetup, receipts: Receipt[]): Promise<strin
 function matchCategory(raw: string | null | undefined): ExpenseCategory | undefined {
   if (!raw) return undefined;
   const lower = raw.toLowerCase().trim();
-  // Exact match (case-insensitive)
   const exact = CATEGORIES.find(c => c.toLowerCase() === lower);
   if (exact) return exact;
-  // Partial: any category whose first word appears in the response
   return CATEGORIES.find(c => lower.includes(c.split(/[\s/]/)[0].toLowerCase()));
 }
 
 // ── State ──────────────────────────────────────────────────────────────────────
 
-let trip = loadTrip();
-let receipts = loadReceipts();
-let draft: Partial<Receipt> & { analysing?: boolean } = {};
-let editingId: string | null = null;
+type View = 'list' | 'setup' | 'receipts';
+
+let trips:         StoredTrip[] = loadTrips();
+let currentTripId: string | null = null;
+let receipts:      Receipt[] = [];
+let draft:         Partial<Receipt> & { analysing?: boolean } = {};
+let editingId:     string | null = null;
+let view:          View = trips.length === 0 ? 'setup' : 'list';
+
+function tripSetup(): TripSetup | null {
+  return trips.find(t => t.id === currentTripId)?.setup ?? null;
+}
+
+function persistReceipts(): void {
+  const idx = trips.findIndex(t => t.id === currentTripId);
+  if (idx !== -1) {
+    trips[idx] = { ...trips[idx], receipts };
+    saveTrips(trips);
+  }
+}
+
 // ── Render ─────────────────────────────────────────────────────────────────────
 
 function render(): void {
-  document.getElementById('app')!.innerHTML = trip ? mainHTML() : setupHTML();
-  if (trip) wireMain(); else wireSetup();
+  const app = document.getElementById('app')!;
+  if (view === 'list')       { app.innerHTML = tripsListHTML(); wireTrips();  }
+  else if (view === 'setup') { app.innerHTML = setupHTML();     wireSetup();  }
+  else                       { app.innerHTML = mainHTML();      wireMain();   }
+}
+
+// ── Trips list ─────────────────────────────────────────────────────────────────
+
+function tripsListHTML(): string {
+  const byCreated = (a: StoredTrip, b: StoredTrip) => b.setup.createdAt.localeCompare(a.setup.createdAt);
+  const bySubmit  = (a: StoredTrip, b: StoredTrip) => (b.submittedAt ?? '').localeCompare(a.submittedAt ?? '');
+
+  const active    = trips.filter(t => t.status === 'active').sort(byCreated);
+  const submitted = trips.filter(t => t.status === 'submitted').sort(bySubmit);
+
+  function tripCard(t: StoredTrip): string {
+    const total   = t.receipts.reduce((s, r) => s + r.amount, 0);
+    const dates   = t.receipts.map(r => r.date).sort();
+    const dateStr = dates.length === 0 ? 'No receipts yet'
+                  : dates.length === 1 ? fmtDateDisplay(dates[0])
+                  : `${fmtDateDisplay(dates[0])} – ${fmtDateDisplay(dates[dates.length - 1])}`;
+    const statusLabel = t.status === 'submitted' && t.submittedAt
+      ? `Sent ${new Date(t.submittedAt).toLocaleDateString('en-IE', { day: '2-digit', month: 'short' })}`
+      : 'Active';
+    return `
+      <div class="trip-card" data-trip="${t.id}">
+        <div class="trip-card-main">
+          <div class="trip-card-name">${t.setup.tripName}</div>
+          <div class="trip-card-amount">€${total.toFixed(2)}</div>
+        </div>
+        <div class="trip-card-meta">
+          <span class="trip-card-info">${t.receipts.length} receipt${t.receipts.length !== 1 ? 's' : ''} · ${dateStr}</span>
+          <span class="trip-status trip-status--${t.status}">${statusLabel}</span>
+        </div>
+      </div>`;
+  }
+
+  const emptyHTML = trips.length === 0
+    ? `<div class="empty-state"><div class="empty-icon">✈️</div><p>No trips yet.<br>Tap + to get started.</p></div>`
+    : '';
+  const activeHTML    = active.length    > 0 ? `<div class="section-header">Active</div>${active.map(tripCard).join('')}`    : '';
+  const submittedHTML = submitted.length > 0 ? `<div class="section-header">Submitted</div>${submitted.map(tripCard).join('')}` : '';
+
+  return `
+    <div class="app-shell">
+      <header class="top-bar">
+        <div class="top-bar-inner">
+          <div class="top-bar-title">Expense Tracker</div>
+          <button class="icon-btn" id="btn-new-trip" title="New Trip">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+          </button>
+        </div>
+      </header>
+      <div class="trips-list">${emptyHTML}${activeHTML}${submittedHTML}</div>
+      <div class="toast" id="toast" hidden></div>
+    </div>`;
+}
+
+function wireTrips(): void {
+  document.getElementById('btn-new-trip')!.addEventListener('click', () => {
+    view = 'setup';
+    render();
+  });
+  document.querySelectorAll<HTMLElement>('[data-trip]').forEach(el => {
+    el.addEventListener('click', () => {
+      const id = el.dataset['trip']!;
+      currentTripId = id;
+      receipts = [...trips.find(t => t.id === id)!.receipts];
+      editingId = null;
+      draft = {};
+      view = 'receipts';
+      render();
+    });
+  });
 }
 
 // ── Setup screen ───────────────────────────────────────────────────────────────
 
 function setupHTML(): string {
+  const showBack  = trips.length > 0;
+  const lastSetup = [...trips].sort((a, b) => b.setup.createdAt.localeCompare(a.setup.createdAt))[0]?.setup;
+
   return `
     <div class="setup-screen">
       <div class="setup-card">
+        ${showBack ? `<button class="setup-back" id="btn-back">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <polyline points="15 18 9 12 15 6"/>
+          </svg>
+          All Trips
+        </button>` : ''}
         <div class="setup-logo">💼</div>
-        <h1 class="setup-title">Expense Tracker</h1>
-        <p class="setup-sub">Set up your trip to get started</p>
+        <h1 class="setup-title">${showBack ? 'New Trip' : 'Expense Tracker'}</h1>
+        <p class="setup-sub">Enter your details to start tracking expenses</p>
         <div class="setup-form">
           <div class="field-group">
             <label class="field-label">Your Name</label>
-            <input class="field-input" id="inp-name" type="text" placeholder="e.g. Kevin Breen" autocomplete="name" />
+            <input class="field-input" id="inp-name" type="text" placeholder="e.g. Kevin Breen" autocomplete="name" value="${lastSetup?.name ?? ''}" />
           </div>
           <div class="field-group">
             <label class="field-label">Email Address</label>
-            <input class="field-input" id="inp-email" type="email" placeholder="you@example.com" autocomplete="email" />
+            <input class="field-input" id="inp-email" type="email" placeholder="you@example.com" autocomplete="email" value="${lastSetup?.email ?? ''}" />
           </div>
           <div class="field-group">
             <label class="field-label">Trip Name</label>
@@ -215,28 +305,47 @@ function setupHTML(): string {
 }
 
 function wireSetup(): void {
-  document.getElementById('btn-start')!.addEventListener('click', () => {
-    const name            = (document.getElementById('inp-name')    as HTMLInputElement).value.trim();
-    const email           = (document.getElementById('inp-email')   as HTMLInputElement).value.trim();
-    const tripName = (document.getElementById('inp-trip') as HTMLInputElement).value.trim();
-    if (!name || !email || !tripName) { showToast('Please fill in all fields'); return; }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showToast('Enter a valid email address'); return; }
-    trip = { name, email, tripName, businessPurpose: tripName, createdAt: new Date().toISOString() };
-    saveTrip(trip);
+  document.getElementById('btn-back')?.addEventListener('click', () => {
+    view = 'list';
     render();
   });
 
-  ['inp-name','inp-email','inp-trip'].forEach(id => {
+  document.getElementById('btn-start')!.addEventListener('click', () => {
+    const name     = (document.getElementById('inp-name')  as HTMLInputElement).value.trim();
+    const email    = (document.getElementById('inp-email') as HTMLInputElement).value.trim();
+    const tripName = (document.getElementById('inp-trip')  as HTMLInputElement).value.trim();
+    if (!name || !email || !tripName) { showToast('Please fill in all fields'); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showToast('Enter a valid email address'); return; }
+
+    const newTrip: StoredTrip = {
+      id:       crypto.randomUUID(),
+      setup:    { name, email, tripName, businessPurpose: tripName, createdAt: new Date().toISOString() },
+      receipts: [],
+      status:   'active',
+    };
+    trips.push(newTrip);
+    saveTrips(trips);
+
+    currentTripId = newTrip.id;
+    receipts = [];
+    editingId = null;
+    draft = {};
+    view = 'receipts';
+    render();
+  });
+
+  ['inp-name', 'inp-email', 'inp-trip'].forEach(id => {
     document.getElementById(id)!.addEventListener('keydown', (e) => {
       if ((e as KeyboardEvent).key === 'Enter') document.getElementById('btn-start')!.click();
     });
   });
 }
 
-// ── Main screen ────────────────────────────────────────────────────────────────
+// ── Main screen (receipts view) ────────────────────────────────────────────────
 
 function mainHTML(): string {
-  const total = receipts.reduce((s, r) => s + r.amount, 0);
+  const setup  = tripSetup()!;
+  const total  = receipts.reduce((s, r) => s + r.amount, 0);
   const sorted = [...receipts].sort((a, b) => b.no - a.no);
 
   const listHTML = sorted.length === 0
@@ -269,16 +378,24 @@ function mainHTML(): string {
     <div class="app-shell">
       <header class="top-bar">
         <div class="top-bar-inner">
-          <div class="top-bar-title">${trip!.tripName}</div>
+          <button class="icon-btn icon-btn--dim" id="btn-back" title="All Trips">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="15 18 9 12 15 6"/>
+            </svg>
+          </button>
+          <div class="top-bar-title">${setup.tripName}</div>
           <div class="top-bar-actions">
+            <button class="icon-btn icon-btn--dim" id="btn-delete" title="Delete Trip">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                <path d="M10 11v6"/><path d="M14 11v6"/>
+                <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+              </svg>
+            </button>
             <button class="icon-btn" id="btn-send" title="Send Report">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
-              </svg>
-            </button>
-            <button class="icon-btn icon-btn--dim" id="btn-new-trip" title="New Trip">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.51"/>
               </svg>
             </button>
           </div>
@@ -298,7 +415,7 @@ function mainHTML(): string {
           </div>
           <div class="summary-divider"></div>
           <div class="summary-stat">
-            <span class="summary-val">${trip!.name.split(' ')[0]}</span>
+            <span class="summary-val">${setup.name.split(' ')[0]}</span>
             <span class="summary-lbl">Traveller</span>
           </div>
         </div>
@@ -325,11 +442,11 @@ function mainHTML(): string {
     </div>
     <div class="confirm-overlay" id="confirm-overlay" hidden>
       <div class="confirm-card">
-        <div class="confirm-title">Start a New Trip?</div>
-        <div class="confirm-body">This will clear all current receipts and trip data. This cannot be undone.</div>
+        <div class="confirm-title">Delete Trip?</div>
+        <div class="confirm-body">This will permanently delete this trip and all its receipts. This cannot be undone.</div>
         <div class="confirm-btns">
           <button class="confirm-cancel" id="confirm-cancel">Cancel</button>
-          <button class="confirm-ok" id="confirm-ok">Clear &amp; Start New</button>
+          <button class="confirm-ok" id="confirm-ok">Delete</button>
         </div>
       </div>
     </div>
@@ -337,12 +454,16 @@ function mainHTML(): string {
 }
 
 function wireMain(): void {
+  document.getElementById('btn-back')!.addEventListener('click', () => {
+    view = 'list';
+    render();
+  });
   document.getElementById('btn-add')!.addEventListener('click', () => openSheet(null));
   document.getElementById('btn-send')!.addEventListener('click', sendReport);
-  document.getElementById('btn-new-trip')!.addEventListener('click', confirmNewTrip);
+  document.getElementById('btn-delete')!.addEventListener('click', confirmDeleteTrip);
 
-  document.querySelectorAll('[data-edit]').forEach(el => {
-    el.addEventListener('click', () => openSheet((el as HTMLElement).dataset['edit']!));
+  document.querySelectorAll<HTMLElement>('[data-edit]').forEach(el => {
+    el.addEventListener('click', () => openSheet(el.dataset['edit']!));
   });
 }
 
@@ -382,7 +503,7 @@ function sheetHTML(): string {
   const isPdf   = draft.fileType === 'pdf';
   const hasFile = isPdf ? !!draft.pdfDataUrl : !!draft.imageDataUrl;
   const catButtons = CATEGORIES.map(cat => {
-    const col = CAT_COLOURS[cat];
+    const col    = CAT_COLOURS[cat];
     const active = draft.category === cat;
     return `<button class="cat-pill${active ? ' cat-pill--active' : ''}" data-cat="${cat}"
       style="color:${col.text};background:${active ? col.bg : 'transparent'};border-color:${col.text}40">
@@ -454,7 +575,7 @@ function sheetHTML(): string {
       </div>
 
       <div class="sheet-actions">
-        ${editingId ? `<button class="btn-danger" id="btn-delete">Delete</button>` : ''}
+        ${editingId ? `<button class="btn-danger" id="btn-delete-receipt">Delete</button>` : ''}
         <button class="btn-primary" id="btn-save">${editingId ? 'Save Changes' : 'Add Receipt'}</button>
       </div>
     </div>`;
@@ -469,7 +590,6 @@ function wireSheet(): void {
     const file = photoInput.files?.[0];
     if (!file) return;
 
-    // Store the file data
     if (file.type === 'application/pdf') {
       const dataUrl     = await readFileAsDataUrl(file);
       draft.fileType    = 'pdf';
@@ -488,7 +608,6 @@ function wireSheet(): void {
       draft.pdfFileName  = undefined;
     }
 
-    // Show preview + spinner, guarantee browser paints before fetch starts
     draft.analysing = true;
     renderSheet();
     await new Promise<void>(r => requestAnimationFrame(() => r()));
@@ -546,7 +665,7 @@ function wireSheet(): void {
   });
 
   document.getElementById('btn-save')!.addEventListener('click', saveReceipt);
-  document.getElementById('btn-delete')?.addEventListener('click', deleteReceipt);
+  document.getElementById('btn-delete-receipt')?.addEventListener('click', deleteReceipt);
 }
 
 function saveReceipt(): void {
@@ -563,7 +682,7 @@ function saveReceipt(): void {
   if (!hasFile) { showToast('Please attach a receipt or document'); return; }
 
   const fileFields = {
-    fileType:    draft.fileType ?? 'image',
+    fileType:     draft.fileType ?? 'image',
     imageDataUrl: draft.imageDataUrl ?? '',
     imageWidth:   draft.imageWidth   ?? 0,
     imageHeight:  draft.imageHeight  ?? 0,
@@ -585,7 +704,7 @@ function saveReceipt(): void {
     receipts.push(newReceipt);
   }
 
-  saveReceipts(receipts);
+  persistReceipts();
   closeSheet();
   setTimeout(() => { render(); showToast(editingId ? 'Receipt updated' : 'Receipt added'); }, 300);
 }
@@ -593,14 +712,33 @@ function saveReceipt(): void {
 function deleteReceipt(): void {
   if (!editingId) return;
   receipts = receipts.filter(r => r.id !== editingId);
-  saveReceipts(receipts);
+  persistReceipts();
   closeSheet();
   setTimeout(() => { render(); showToast('Receipt deleted'); }, 300);
+}
+
+// ── Delete trip confirmation ────────────────────────────────────────────────────
+
+function confirmDeleteTrip(): void {
+  const overlay = document.getElementById('confirm-overlay')!;
+  overlay.hidden = false;
+  document.getElementById('confirm-cancel')!.addEventListener('click', () => { overlay.hidden = true; });
+  document.getElementById('confirm-ok')!.addEventListener('click', () => {
+    trips = trips.filter(t => t.id !== currentTripId);
+    saveTrips(trips);
+    currentTripId = null;
+    receipts = [];
+    view = 'list';
+    render();
+    showToast('Trip deleted');
+  });
 }
 
 // ── Send report ────────────────────────────────────────────────────────────────
 
 async function sendReport(): Promise<void> {
+  const setup = tripSetup();
+  if (!setup) return;
   if (receipts.length === 0) { showToast('No receipts to send'); return; }
 
   const overlay = document.getElementById('send-overlay')!;
@@ -609,13 +747,12 @@ async function sendReport(): Promise<void> {
 
   try {
     msg.textContent = 'Generating PDF…';
-    const pdfDataUri = await generatePDF(trip!, receipts);
+    const pdfDataUri = await generatePDF(setup, receipts);
     const pdfBase64  = pdfDataUri.split(',')[1];
 
     msg.textContent = 'Generating expense form…';
-    const xlsxBase64 = await generateExpenseFormXlsx(trip!, receipts);
+    const xlsxBase64 = await generateExpenseFormXlsx(setup, receipts);
 
-    // Collect any PDF receipts as separate attachments
     const pdfAttachments = receipts
       .filter(r => r.fileType === 'pdf' && r.pdfDataUrl)
       .map(r => ({
@@ -628,9 +765,9 @@ async function sendReport(): Promise<void> {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({
-        to:        trip!.email,
-        name:      trip!.name,
-        tripName:  trip!.tripName,
+        to:        setup.email,
+        name:      setup.name,
+        tripName:  setup.tripName,
         pdfBase64,
         xlsxBase64,
         pdfAttachments,
@@ -642,27 +779,21 @@ async function sendReport(): Promise<void> {
       throw new Error(err?.error ?? `HTTP ${res.status}`);
     }
 
+    // Mark trip as submitted and navigate to history
+    const idx = trips.findIndex(t => t.id === currentTripId);
+    if (idx !== -1) {
+      trips[idx] = { ...trips[idx], status: 'submitted', submittedAt: new Date().toISOString() };
+      saveTrips(trips);
+    }
+
     overlay.hidden = true;
+    view = 'list';
+    render();
     showToast('Report sent! Check your inbox.');
   } catch (e) {
     overlay.hidden = true;
     showToast(`Failed: ${(e as Error).message}`);
   }
-}
-
-// ── New trip confirmation ──────────────────────────────────────────────────────
-
-function confirmNewTrip(): void {
-  const overlay = document.getElementById('confirm-overlay')!;
-  overlay.hidden = false;
-  document.getElementById('confirm-cancel')!.addEventListener('click', () => { overlay.hidden = true; });
-  document.getElementById('confirm-ok')!.addEventListener('click', () => {
-    clearTrip();
-    trip     = null;
-    receipts = [];
-    overlay.hidden = true;
-    render();
-  });
 }
 
 // ── Toast ──────────────────────────────────────────────────────────────────────
