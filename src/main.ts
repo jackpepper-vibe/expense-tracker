@@ -163,6 +163,27 @@ function matchCategory(raw: string | null | undefined): ExpenseCategory | undefi
   return CATEGORIES.find(c => lower.includes(c.split(/[\s/]/)[0].toLowerCase()));
 }
 
+// ── Theme ──────────────────────────────────────────────────────────────────────
+
+const THEME_KEY = 'et_theme_v1';
+let theme: 'dark' | 'light' = (() => {
+  const s = localStorage.getItem(THEME_KEY);
+  return s === 'light' ? 'light' : 'dark';
+})();
+
+function applyTheme(): void {
+  document.documentElement.classList.toggle('light', theme === 'light');
+}
+
+function setTheme(t: 'dark' | 'light'): void {
+  theme = t;
+  localStorage.setItem(THEME_KEY, t);
+  applyTheme();
+  document.querySelectorAll<HTMLElement>('[data-theme]').forEach(btn => {
+    btn.classList.toggle('theme-opt--active', btn.dataset['theme'] === t);
+  });
+}
+
 // ── State ──────────────────────────────────────────────────────────────────────
 
 type View = 'list' | 'setup' | 'receipts';
@@ -232,6 +253,14 @@ function tripsListHTML(): string {
   return `
     <div class="app-shell trips-screen">
       <div class="trips-scroll">
+        <div class="trips-toolbar">
+          <button class="icon-btn icon-btn--dim" id="btn-settings" title="Settings">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            </svg>
+          </button>
+        </div>
         <div class="trips-hero">
           <div class="trips-hero-logo">💼</div>
           <h1 class="trips-hero-title">Expense Tracker</h1>
@@ -253,6 +282,68 @@ function tripsListHTML(): string {
         </button>
         ${activeHTML}${submittedHTML}
       </div>
+
+      <div class="sheet-overlay" id="settings-overlay" hidden></div>
+      <div class="sheet" id="settings-sheet" hidden>
+        <div class="sheet-handle"></div>
+        <div class="sheet-header">
+          <span class="sheet-title">Settings</span>
+          <button class="sheet-close" id="settings-close">✕</button>
+        </div>
+        <div class="sheet-body">
+          <div class="settings-group">
+            <div class="settings-group-title">Appearance</div>
+            <div class="settings-row">
+              <span class="settings-label">Theme</span>
+              <div class="theme-seg">
+                <button class="theme-opt${theme === 'light' ? ' theme-opt--active' : ''}" data-theme="light">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <circle cx="12" cy="12" r="5"/>
+                    <line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
+                    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                    <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
+                    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                  </svg>
+                  Light
+                </button>
+                <button class="theme-opt${theme === 'dark' ? ' theme-opt--active' : ''}" data-theme="dark">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                  </svg>
+                  Dark
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="settings-group">
+            <div class="settings-group-title">Data</div>
+            <button class="settings-danger-row" id="btn-clear-data">
+              <div>
+                <div class="settings-danger-label">Clear All Data</div>
+                <div class="settings-danger-hint">Delete all trips and receipts from this device</div>
+              </div>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;opacity:0.7">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                <path d="M10 11v6"/><path d="M14 11v6"/>
+                <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="confirm-overlay" id="confirm-overlay" hidden>
+        <div class="confirm-card">
+          <div class="confirm-title">Clear All Data?</div>
+          <div class="confirm-body">This will permanently delete all trips and receipts from this device. This cannot be undone.</div>
+          <div class="confirm-btns">
+            <button class="confirm-cancel" id="confirm-cancel">Cancel</button>
+            <button class="confirm-ok" id="confirm-ok">Clear Everything</button>
+          </div>
+        </div>
+      </div>
+
       <div class="toast" id="toast" hidden></div>
     </div>`;
 }
@@ -262,6 +353,7 @@ function wireTrips(): void {
     view = 'setup';
     render();
   });
+  document.getElementById('btn-settings')!.addEventListener('click', openSettings);
   document.querySelectorAll<HTMLElement>('[data-trip]').forEach(el => {
     el.addEventListener('click', () => {
       const id = el.dataset['trip']!;
@@ -273,6 +365,45 @@ function wireTrips(): void {
       render();
     });
   });
+}
+
+// ── Settings sheet ─────────────────────────────────────────────────────────────
+
+function openSettings(): void {
+  const overlay = document.getElementById('settings-overlay')!;
+  const sheet   = document.getElementById('settings-sheet')!;
+  overlay.hidden = false;
+  sheet.hidden   = false;
+  requestAnimationFrame(() => sheet.classList.add('sheet--open'));
+  overlay.addEventListener('click', closeSettings, { once: true });
+  document.getElementById('settings-close')!.addEventListener('click', closeSettings);
+
+  document.querySelectorAll<HTMLElement>('[data-theme]').forEach(btn => {
+    btn.addEventListener('click', () => setTheme(btn.dataset['theme'] as 'dark' | 'light'));
+  });
+
+  document.getElementById('btn-clear-data')!.addEventListener('click', () => {
+    const confirm = document.getElementById('confirm-overlay')!;
+    confirm.hidden = false;
+    document.getElementById('confirm-cancel')!.addEventListener('click', () => { confirm.hidden = true; });
+    document.getElementById('confirm-ok')!.addEventListener('click', () => {
+      localStorage.clear();
+      trips = [];
+      theme = 'dark';
+      applyTheme();
+      view = 'list';
+      render();
+    });
+  });
+}
+
+function closeSettings(): void {
+  const sheet = document.getElementById('settings-sheet')!;
+  sheet.classList.remove('sheet--open');
+  sheet.addEventListener('transitionend', () => {
+    sheet.hidden = true;
+    document.getElementById('settings-overlay')!.hidden = true;
+  }, { once: true });
 }
 
 // ── Setup screen ───────────────────────────────────────────────────────────────
@@ -821,4 +952,5 @@ function showToast(msg: string): void {
 
 // ── Boot ───────────────────────────────────────────────────────────────────────
 
+applyTheme();
 render();
