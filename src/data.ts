@@ -14,7 +14,10 @@ export interface Receipt {
   nature:        string;  // Nature of expenditure — what was bought
   attendees?:    string;  // Names of attendees (for meal/entertainment categories)
   category:      ExpenseCategory;
-  amount:        number;
+  currency:      string;  // ISO code e.g. 'EUR', 'USD', 'GBP'
+  exchangeRate:  number;  // units of this currency per 1 EUR (e.g. 1.08 for USD)
+  amount:        number;  // original amount in the incurred currency
+  amountEur:     number;  // EUR equivalent (amount / exchangeRate)
   imageDataUrl:  string;  // compressed JPEG base64 (or empty string when fileType=pdf)
   imageWidth:    number;
   imageHeight:   number;
@@ -49,6 +52,15 @@ export const CAT_LABELS: Record<ExpenseCategory, string> = {
   'Marketing/Client Travel':'Marketing',
   'PM Travel/Sales':        'PM Travel',
   'Other':                  'Other',
+};
+
+export const CURRENCIES = [
+  'EUR','USD','GBP','CHF','JPY','CAD','AUD','NOK','SEK','DKK','PLN','HUF','CZK',
+] as const;
+
+export const CURRENCY_SYMBOLS: Record<string, string> = {
+  EUR:'€', USD:'$', GBP:'£', CHF:'Fr', JPY:'¥', CAD:'CA$',
+  AUD:'A$', NOK:'kr', SEK:'kr', DKK:'kr', PLN:'zł', HUF:'Ft', CZK:'Kč',
 };
 
 export const CAT_COLOURS: Record<ExpenseCategory, { text: string; bg: string }> = {

@@ -441,11 +441,25 @@ body::before {
 
 .receipt-amount {
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0 14px;
+  gap: 2px;
+}
+
+.amount-foreign {
   font-size: 15px;
   font-weight: 700;
   letter-spacing: -0.5px;
   color: var(--text);
-  padding: 0 14px;
+}
+
+.amount-eur-small {
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: -0.2px;
 }
 
 /* ── Empty state ────────────────────────────────────── */
@@ -1150,6 +1164,34 @@ body::before {
 .settings-danger-label {
   font-size: 15px;
   font-weight: 600;
+}
+
+/* ── Currency selector ──────────────────────────────── */
+
+.amount-row {
+  display: flex;
+  gap: 8px;
+}
+
+.currency-select {
+  width: 78px;
+  flex-shrink: 0;
+  padding: 11px 6px;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+}
+
+.currency-note {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 3px 2px 0;
 }
 
 .settings-danger-hint {

@@ -26,12 +26,26 @@ const EXPENSES_SHEET_PATHS = [
   'xl/worksheets/sheet7.xml',  // Expenses page 6
 ];
 
+// Full currency names for Excel cell J6 ("Currency Incurred")
+const CURRENCY_NAMES: Record<string, string> = {
+  EUR:'Euro', USD:'US Dollar', GBP:'British Pound', CHF:'Swiss Franc',
+  JPY:'Japanese Yen', CAD:'Canadian Dollar', AUD:'Australian Dollar',
+  NOK:'Norwegian Krone', SEK:'Swedish Krona', DKK:'Danish Krone',
+  PLN:'Polish Zloty', HUF:'Hungarian Forint', CZK:'Czech Koruna',
+};
+
 const DATA_ROW_FIRST = 9;
 const DATA_ROW_LAST  = 21;   // 13 data rows per sheet
 const ROWS_PER_SHEET = DATA_ROW_LAST - DATA_ROW_FIRST + 1;
 const AMT_COLS       = ['E','F','G','H','I','J','K','L'] as const;
 
 type ColTotals = Record<string, number>;
+
+interface CurrencyPage {
+  currency:     string;
+  exchangeRate: number;  // units of currency per 1 EUR
+  receipts:     Receipt[];
+}
 
 // ── Pure helpers ──────────────────────────────────────────────────────────────
 
@@ -72,10 +86,10 @@ function stripSharedFormulas(xml: string): string {
 
 // Replace the entire cell element (handles self-closing and content forms)
 function replaceCell(xml: string, ref: string, replacement: string): string {
-  const selfClose  = new RegExp(`<c r="${ref}"[^>]*/>`);
+  const selfClose   = new RegExp(`<c r="${ref}"[^>]*/>`);
   const withContent = new RegExp(`<c r="${ref}"[\\s\\S]*?</c>`);
-  if (selfClose.test(xml))    return xml.replace(selfClose, replacement);
-  if (withContent.test(xml))  return xml.replace(withContent, replacement);
+  if (selfClose.test(xml))   return xml.replace(selfClose, replacement);
+  if (withContent.test(xml)) return xml.replace(withContent, replacement);
   return xml;
 }
 
@@ -83,7 +97,7 @@ function replaceCell(xml: string, ref: string, replacement: string): string {
 // the formula itself, style, and all other attributes untouched.
 function updateCachedValue(xml: string, ref: string, value: number): string {
   const marker = `<c r="${ref}"`;
-  const start = xml.indexOf(marker);
+  const start  = xml.indexOf(marker);
   if (start === -1) return xml;
   const end     = xml.indexOf('</c>', start) + 4;
   const cellXml = xml.slice(start, end);
@@ -111,8 +125,8 @@ function buildDataRow(rowNum: number, receipt: Receipt | null, globalSeq: number
     ].join('');
   }
 
-  const amtCol    = CAT_COL[receipt.category];
-  const amtCells  = AMT_COLS.map(c => {
+  const amtCol   = CAT_COL[receipt.category];
+  const amtCells = AMT_COLS.map(c => {
     const s = c === 'E' ? eStyle : flStyle;
     return c === amtCol ? numCell(`${c}${r}`, s, receipt.amount) : emptyCell(`${c}${r}`, s);
   }).join('');
@@ -133,18 +147,58 @@ function replaceRow(xml: string, rowNum: number, newRow: string): string {
   return xml.replace(new RegExp(`<row r="${rowNum}"[\\s\\S]*?</row>`), newRow);
 }
 
-// ── Totals computation ────────────────────────────────────────────────────────
+// ── Currency page grouping ────────────────────────────────────────────────────
 
-function pageReceipts(receipts: Receipt[], pageIdx: number): Receipt[] {
-  return receipts.slice(pageIdx * ROWS_PER_SHEET, (pageIdx + 1) * ROWS_PER_SHEET);
+// Groups receipts by currency (EUR first, then alphabetical) and splits each
+// group into pages of ROWS_PER_SHEET. Each page gets its own Excel sheet with
+// J6 = currency name and M6 = exchange rate so the template's row-25 formula
+// (row24 / M6) correctly produces the EUR equivalent.
+function buildCurrencyPages(receipts: Receipt[]): CurrencyPage[] {
+  const groups = new Map<string, Receipt[]>();
+  for (const r of receipts) {
+    const cur = r.currency ?? 'EUR';
+    if (!groups.has(cur)) groups.set(cur, []);
+    groups.get(cur)!.push(r);
+  }
+
+  // EUR first, then alphabetical by currency code
+  const sorted = [...groups.entries()].sort(([a], [b]) => {
+    if (a === 'EUR') return -1;
+    if (b === 'EUR') return 1;
+    return a.localeCompare(b);
+  });
+
+  const pages: CurrencyPage[] = [];
+  for (const [currency, rs] of sorted) {
+    const exchangeRate = rs[0].exchangeRate ?? 1;
+    for (let i = 0; i < rs.length; i += ROWS_PER_SHEET) {
+      pages.push({ currency, exchangeRate, receipts: rs.slice(i, i + ROWS_PER_SHEET) });
+    }
+  }
+  return pages;
 }
 
+// ── Totals computation ────────────────────────────────────────────────────────
+
+// Totals in original incurred currency → used for Excel row 24
 function computeTotals(rs: Receipt[]): ColTotals {
   const t: ColTotals = { E:0, F:0, G:0, H:0, I:0, J:0, K:0, L:0, M:0 };
   for (const r of rs) {
     const c = CAT_COL[r.category];
     t[c] += r.amount;
     t['M'] += r.amount;
+  }
+  return t;
+}
+
+// Totals in EUR → used for Excel row 25 and the Summary sheet
+function computeTotalsEur(rs: Receipt[]): ColTotals {
+  const t: ColTotals = { E:0, F:0, G:0, H:0, I:0, J:0, K:0, L:0, M:0 };
+  for (const r of rs) {
+    const c   = CAT_COL[r.category];
+    const eur = r.amountEur ?? r.amount;
+    t[c] += eur;
+    t['M'] += eur;
   }
   return t;
 }
@@ -170,7 +224,7 @@ export async function generateExpenseFormXlsx(
   // Remove stale calc chain
   zip.remove('xl/calcChain.xml');
 
-  // Force full recalculation on open (belt-and-suspenders)
+  // Force full recalculation on open
   const wbFile = zip.file('xl/workbook.xml');
   if (wbFile) {
     const wbXml = (await wbFile.async('string'))
@@ -180,6 +234,8 @@ export async function generateExpenseFormXlsx(
 
   // ── Process each Expenses sheet ───────────────────────────────────────────
 
+  const currencyPages = buildCurrencyPages(receipts);
+  // pageTotals holds EUR amounts for the Summary sheet
   const pageTotals: ColTotals[] = [];
 
   for (let si = 0; si < EXPENSES_SHEET_PATHS.length; si++) {
@@ -189,23 +245,32 @@ export async function generateExpenseFormXlsx(
     let xml = await file.async('string');
     xml = stripSharedFormulas(xml);
 
-    // Employee name in C6
+    // Employee name
     xml = replaceCell(xml, 'C6', inlineStrCell('C6', '192', setup.name));
 
-    // Data rows 9–21
-    const page = pageReceipts(receipts, si);
+    // Currency name (J6) and FX rate (M6) — defaults to Euro / 1 for empty pages
+    const page = currencyPages[si];
+    const pageCurrency     = page?.currency     ?? 'EUR';
+    const pageExchangeRate = page?.exchangeRate ?? 1;
+    xml = replaceCell(xml, 'J6', inlineStrCell('J6', '166', CURRENCY_NAMES[pageCurrency] ?? pageCurrency));
+    xml = replaceCell(xml, 'M6', numCell('M6', '165', pageExchangeRate));
+
+    // Data rows 9–21 in original (incurred) currency amounts
+    const pageReceipts = page?.receipts ?? [];
     for (let ri = 0; ri < ROWS_PER_SHEET; ri++) {
       const rowNum = DATA_ROW_FIRST + ri;
-      xml = replaceRow(xml, rowNum, buildDataRow(rowNum, page[ri] ?? null, si * ROWS_PER_SHEET + ri + 1));
+      xml = replaceRow(xml, rowNum, buildDataRow(rowNum, pageReceipts[ri] ?? null, si * ROWS_PER_SHEET + ri + 1));
     }
 
-    // Compute totals for this page and write cached values into rows 24 & 25
-    const pt = computeTotals(page);
-    pageTotals.push(pt);
+    // Row 24: total in original currency (the template's M6 formula converts to EUR in row 25)
+    const ptOriginal = computeTotals(pageReceipts);
+    // Row 25 & Summary: total in EUR
+    const ptEur = computeTotalsEur(pageReceipts);
+    pageTotals.push(ptEur);
 
     for (const col of [...AMT_COLS, 'M']) {
-      xml = updateCachedValue(xml, `${col}24`, pt[col] ?? 0);
-      xml = updateCachedValue(xml, `${col}25`, pt[col] ?? 0);
+      xml = updateCachedValue(xml, `${col}24`, ptOriginal[col] ?? 0);
+      xml = updateCachedValue(xml, `${col}25`, ptEur[col] ?? 0);
     }
 
     zip.file(EXPENSES_SHEET_PATHS[si], xml);
@@ -213,13 +278,12 @@ export async function generateExpenseFormXlsx(
 
   // ── Process Summary sheet ─────────────────────────────────────────────────
 
-  const grand = sumTotals(pageTotals);
+  const grand = sumTotals(pageTotals);  // all in EUR
 
   const summaryFile = zip.file('xl/worksheets/sheet1.xml');
   if (summaryFile) {
     let xml = await summaryFile.async('string');
 
-    // Header fields
     xml = replaceCell(xml, 'B12', inlineStrCell('B12', '192', setup.name));
     xml = replaceCell(xml, 'H10', inlineStrCell('H10', '203', setup.businessPurpose));
 
@@ -229,7 +293,7 @@ export async function generateExpenseFormXlsx(
       xml = replaceCell(xml, 'C10', numCell('C10', '207', isoToExcelSerial(dates[dates.length - 1])));
     }
 
-    // Per-page totals: Summary rows 17–22 (one per Expenses sheet)
+    // Per-page EUR totals → Summary rows 17–22
     for (let si = 0; si < EXPENSES_SHEET_PATHS.length; si++) {
       const summaryRow = 17 + si;
       const pt = pageTotals[si];
@@ -238,12 +302,12 @@ export async function generateExpenseFormXlsx(
       }
     }
 
-    // Grand total row 23
+    // Grand total row 23 (EUR)
     for (const [expCol, sumCol] of Object.entries(EXP_TO_SUM)) {
       xml = updateCachedValue(xml, `${sumCol}23`, grand[expCol] ?? 0);
     }
 
-    // K28 = total expenses claimed (grand total, assuming no advances)
+    // K28 = total expenses claimed in EUR
     xml = updateCachedValue(xml, 'K28', grand['M'] ?? 0);
 
     zip.file('xl/worksheets/sheet1.xml', xml);

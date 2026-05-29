@@ -3,6 +3,7 @@ import {
   loadTrips, saveTrips, nextReceiptNo,
   fmtDateDisplay, todayISO,
   CATEGORIES, CAT_LABELS, CAT_COLOURS,
+  CURRENCIES, CURRENCY_SYMBOLS,
   type StoredTrip, type TripSetup, type Receipt, type ExpenseCategory,
 } from './data.ts';
 import { generateExpenseFormXlsx } from './expense-form.ts';
@@ -70,15 +71,21 @@ async function generatePDF(setup: TripSetup, rs: Receipt[]): Promise<string> {
 
   const head = [['#', 'Date', 'Location', 'Description', ...CAT_SHORT, 'Total']];
   const body = rs.map(r => {
-    const cats = COL_ORDER.map(cat => r.category === cat ? `€${r.amount.toFixed(2)}` : '');
+    const eur  = r.amountEur ?? r.amount;
+    const cats = COL_ORDER.map(cat => {
+      if (r.category !== cat) return '';
+      return r.currency && r.currency !== 'EUR'
+        ? `${CURRENCY_SYMBOLS[r.currency] ?? r.currency}${r.amount.toFixed(2)}\n€${eur.toFixed(2)}`
+        : `€${eur.toFixed(2)}`;
+    });
     const desc = [setup.businessPurpose, r.nature, r.attendees ? `Attendees: ${r.attendees}` : ''].filter(Boolean).join(' — ');
-    return [r.no, fmtDateDisplay(r.date), r.location, desc, ...cats, `€${r.amount.toFixed(2)}`];
+    return [r.no, fmtDateDisplay(r.date), r.location, desc, ...cats, `€${eur.toFixed(2)}`];
   });
 
   const totals = COL_ORDER.map(cat =>
-    rs.filter(r => r.category === cat).reduce((s, r) => s + r.amount, 0)
+    rs.filter(r => r.category === cat).reduce((s, r) => s + (r.amountEur ?? r.amount), 0)
   );
-  const grand = rs.reduce((s, r) => s + r.amount, 0);
+  const grand = rs.reduce((s, r) => s + (r.amountEur ?? r.amount), 0);
   body.push(['', '', '', 'TOTAL', ...totals.map(t => t > 0 ? `€${t.toFixed(2)}` : ''), `€${grand.toFixed(2)}`]);
 
   autoTable(doc, {
@@ -127,7 +134,10 @@ async function generatePDF(setup: TripSetup, rs: Receipt[]): Promise<string> {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
     doc.text(`${fmtDateDisplay(r.date)}  |  ${r.location}`, 10, 17);
-    doc.text(`€${r.amount.toFixed(2)}`, RPW - 10, 17, { align: 'right' });
+    const amtLabel = r.currency && r.currency !== 'EUR'
+      ? `${CURRENCY_SYMBOLS[r.currency] ?? r.currency}${r.amount.toFixed(2)} (€${(r.amountEur ?? r.amount).toFixed(2)})`
+      : `€${r.amount.toFixed(2)}`;
+    doc.text(amtLabel, RPW - 10, 17, { align: 'right' });
 
     doc.setTextColor(30, 30, 30);
     doc.setFontSize(9);
@@ -151,6 +161,16 @@ async function generatePDF(setup: TripSetup, rs: Receipt[]): Promise<string> {
   }
 
   return doc.output('datauristring');
+}
+
+// ── Exchange rate fetching ─────────────────────────────────────────────────────
+
+// Returns units of `currency` per 1 EUR (e.g. 1.0825 for USD when 1 EUR = 1.0825 USD)
+async function fetchExchangeRate(currency: string): Promise<number> {
+  const res = await fetch(`https://api.frankfurter.app/latest?from=${currency}&to=EUR`);
+  if (!res.ok) throw new Error('Rate unavailable');
+  const data = await res.json() as { rates: { EUR: number } };
+  return 1 / data.rates.EUR;
 }
 
 // ── Category matching ──────────────────────────────────────────────────────────
@@ -191,7 +211,7 @@ type View = 'list' | 'setup' | 'receipts';
 let trips:         StoredTrip[] = loadTrips();
 let currentTripId: string | null = null;
 let receipts:      Receipt[] = [];
-let draft:         Partial<Receipt> & { analysing?: boolean } = {};
+let draft:         Partial<Receipt> & { analysing?: boolean; fetchingRate?: boolean } = {};
 let editingId:     string | null = null;
 let view:          View = 'list';
 
@@ -226,7 +246,7 @@ function tripsListHTML(): string {
   const submitted = trips.filter(t => t.status === 'submitted').sort(bySubmit);
 
   function tripCard(t: StoredTrip): string {
-    const total   = t.receipts.reduce((s, r) => s + r.amount, 0);
+    const total   = t.receipts.reduce((s, r) => s + (r.amountEur ?? r.amount), 0);
     const dates   = t.receipts.map(r => r.date).sort();
     const dateStr = dates.length === 0 ? 'No receipts yet'
                   : dates.length === 1 ? fmtDateDisplay(dates[0])
@@ -488,7 +508,7 @@ function wireSetup(): void {
 
 function mainHTML(): string {
   const setup  = tripSetup()!;
-  const total  = receipts.reduce((s, r) => s + r.amount, 0);
+  const total  = receipts.reduce((s, r) => s + (r.amountEur ?? r.amount), 0);
   const sorted = [...receipts].sort((a, b) => b.no - a.no);
 
   const listHTML = sorted.length === 0
@@ -513,7 +533,13 @@ function mainHTML(): string {
               ${r.nature ? `<div class="receipt-nature">${r.nature}</div>` : ''}
               <span class="receipt-cat" style="color:${col.text};background:${col.bg}">${CAT_LABELS[r.category]}</span>
             </div>
-            <div class="receipt-amount">€${r.amount.toFixed(2)}</div>
+            <div class="receipt-amount">
+              ${r.currency && r.currency !== 'EUR'
+                ? `<span class="amount-foreign">${CURRENCY_SYMBOLS[r.currency] ?? r.currency}${r.amount.toFixed(2)}</span>
+                   <span class="amount-eur-small">€${(r.amountEur ?? r.amount).toFixed(2)}</span>`
+                : `<span class="amount-foreign">€${r.amount.toFixed(2)}</span>`
+              }
+            </div>
           </div>`;
       }).join('');
 
@@ -718,8 +744,19 @@ function sheetHTML(): string {
         <div class="cat-grid" id="cat-grid">${catButtons}</div>
       </div>
       <div class="field-group">
-        <label class="field-label">Amount (€)</label>
-        <input class="field-input" id="inp-amount" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00" value="${draft.amount != null ? draft.amount : ''}" />
+        <label class="field-label">Amount</label>
+        <div class="amount-row">
+          <select class="field-input currency-select" id="inp-currency" ${draft.fetchingRate ? 'disabled' : ''}>
+            ${CURRENCIES.map(c => `<option value="${c}"${(draft.currency ?? 'EUR') === c ? ' selected' : ''}>${c}</option>`).join('')}
+          </select>
+          <input class="field-input" id="inp-amount" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00" value="${draft.amount != null ? draft.amount : ''}" ${draft.fetchingRate ? 'disabled' : ''} />
+        </div>
+        ${draft.fetchingRate
+          ? `<div class="currency-note"><div class="photo-spin" style="width:14px;height:14px;border-width:2px;margin:0"></div>Fetching rate…</div>`
+          : draft.currency && draft.currency !== 'EUR' && draft.exchangeRate
+            ? `<div class="currency-note" id="currency-note">1 ${draft.currency} = €${(1/draft.exchangeRate).toFixed(4)}${draft.amount ? ` · ≈ €${((draft.amount)/(draft.exchangeRate)).toFixed(2)}` : ''}</div>`
+            : ''
+        }
       </div>
 
       <div class="sheet-actions">
@@ -804,8 +841,40 @@ function wireSheet(): void {
   document.getElementById('inp-attendees')?.addEventListener('input', (e) => {
     draft.attendees = (e.target as HTMLInputElement).value;
   });
+  document.getElementById('inp-currency')!.addEventListener('change', async () => {
+    const currency = (document.getElementById('inp-currency') as HTMLSelectElement).value;
+    draft.currency = currency;
+    if (currency === 'EUR') {
+      draft.exchangeRate = 1;
+      draft.amountEur    = draft.amount ?? 0;
+      renderSheet();
+    } else {
+      draft.fetchingRate = true;
+      renderSheet();
+      try {
+        draft.exchangeRate = await fetchExchangeRate(currency);
+        draft.amountEur    = (draft.amount ?? 0) / draft.exchangeRate;
+      } catch {
+        showToast('Could not fetch exchange rate — defaulting to 1:1');
+        draft.exchangeRate = 1;
+        draft.amountEur    = draft.amount ?? 0;
+      }
+      draft.fetchingRate = false;
+      renderSheet();
+    }
+  });
+
   document.getElementById('inp-amount')!.addEventListener('input', (e) => {
     draft.amount = parseFloat((e.target as HTMLInputElement).value) || 0;
+    if (draft.currency && draft.currency !== 'EUR' && draft.exchangeRate) {
+      draft.amountEur = draft.amount / draft.exchangeRate;
+      const note = document.getElementById('currency-note');
+      if (note) {
+        note.textContent = `1 ${draft.currency} = €${(1/draft.exchangeRate).toFixed(4)} · ≈ €${draft.amountEur.toFixed(2)}`;
+      }
+    } else {
+      draft.amountEur = draft.amount;
+    }
   });
 
   document.getElementById('cat-grid')!.addEventListener('click', (e) => {
@@ -820,10 +889,13 @@ function wireSheet(): void {
 }
 
 function saveReceipt(): void {
-  const date     = (document.getElementById('inp-date')     as HTMLInputElement).value;
-  const location = (document.getElementById('inp-location') as HTMLInputElement).value.trim();
-  const nature   = (document.getElementById('inp-nature')   as HTMLInputElement).value.trim();
-  const amount   = parseFloat((document.getElementById('inp-amount') as HTMLInputElement).value);
+  const date         = (document.getElementById('inp-date')     as HTMLInputElement).value;
+  const location     = (document.getElementById('inp-location') as HTMLInputElement).value.trim();
+  const nature       = (document.getElementById('inp-nature')   as HTMLInputElement).value.trim();
+  const amount       = parseFloat((document.getElementById('inp-amount') as HTMLInputElement).value);
+  const currency     = draft.currency ?? 'EUR';
+  const exchangeRate = draft.exchangeRate ?? 1;
+  const amountEur    = currency === 'EUR' ? amount : amount / exchangeRate;
 
   const attendees  = (document.getElementById('inp-attendees') as HTMLInputElement | null)?.value.trim() ?? draft.attendees ?? '';
   const needsAttendees = draft.category === 'Working Meals' || draft.category === 'Client Entertainment';
@@ -848,12 +920,12 @@ function saveReceipt(): void {
   if (editingId) {
     const idx = receipts.findIndex(r => r.id === editingId);
     if (idx !== -1) {
-      receipts[idx] = { ...receipts[idx], date, location, nature, attendees: attendees || undefined, category: draft.category!, amount, ...fileFields };
+      receipts[idx] = { ...receipts[idx], date, location, nature, attendees: attendees || undefined, category: draft.category!, currency, exchangeRate, amount, amountEur, ...fileFields };
     }
   } else {
     const newReceipt: Receipt = {
       id: crypto.randomUUID(), no: nextReceiptNo(receipts),
-      date, location, nature, attendees: attendees || undefined, category: draft.category!, amount,
+      date, location, nature, attendees: attendees || undefined, category: draft.category!, currency, exchangeRate, amount, amountEur,
       ...fileFields,
     };
     receipts.push(newReceipt);
