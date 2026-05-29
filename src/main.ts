@@ -436,6 +436,10 @@ function setupHTML(): string {
             <label class="field-label">Trip Name</label>
             <input class="field-input" id="inp-trip" type="text" placeholder="e.g. Paris Feb 2026" />
           </div>
+          <div class="field-group">
+            <label class="field-label">Business Purpose of Travel</label>
+            <input class="field-input" id="inp-purpose" type="text" placeholder="e.g. Client meetings, Conference" />
+          </div>
           <button class="btn-primary" id="btn-start">Start Trip</button>
         </div>
       </div>
@@ -449,15 +453,16 @@ function wireSetup(): void {
   });
 
   document.getElementById('btn-start')!.addEventListener('click', () => {
-    const name     = (document.getElementById('inp-name')  as HTMLInputElement).value.trim();
-    const email    = (document.getElementById('inp-email') as HTMLInputElement).value.trim();
-    const tripName = (document.getElementById('inp-trip')  as HTMLInputElement).value.trim();
-    if (!name || !email || !tripName) { showToast('Please fill in all fields'); return; }
+    const name            = (document.getElementById('inp-name')    as HTMLInputElement).value.trim();
+    const email           = (document.getElementById('inp-email')   as HTMLInputElement).value.trim();
+    const tripName        = (document.getElementById('inp-trip')    as HTMLInputElement).value.trim();
+    const businessPurpose = (document.getElementById('inp-purpose') as HTMLInputElement).value.trim();
+    if (!name || !email || !tripName || !businessPurpose) { showToast('Please fill in all fields'); return; }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showToast('Enter a valid email address'); return; }
 
     const newTrip: StoredTrip = {
       id:       crypto.randomUUID(),
-      setup:    { name, email, tripName, businessPurpose: tripName, createdAt: new Date().toISOString() },
+      setup:    { name, email, tripName, businessPurpose, createdAt: new Date().toISOString() },
       receipts: [],
       status:   'active',
     };
@@ -472,7 +477,7 @@ function wireSetup(): void {
     render();
   });
 
-  ['inp-name', 'inp-email', 'inp-trip'].forEach(id => {
+  ['inp-name', 'inp-email', 'inp-trip', 'inp-purpose'].forEach(id => {
     document.getElementById(id)!.addEventListener('keydown', (e) => {
       if ((e as KeyboardEvent).key === 'Enter') document.getElementById('btn-start')!.click();
     });

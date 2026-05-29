@@ -211,7 +211,7 @@ export async function generateExpenseFormXlsx(
 
     // Header fields
     xml = replaceCell(xml, 'B12', inlineStrCell('B12', '192', setup.name));
-    xml = replaceCell(xml, 'H10', inlineStrCell('H10', '203', setup.tripName));
+    xml = replaceCell(xml, 'H10', inlineStrCell('H10', '203', setup.businessPurpose));
 
     if (receipts.length > 0) {
       const dates = receipts.map(r => r.date).sort();
