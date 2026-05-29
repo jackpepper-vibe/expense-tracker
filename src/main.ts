@@ -71,7 +71,7 @@ async function generatePDF(setup: TripSetup, rs: Receipt[]): Promise<string> {
   const head = [['#', 'Date', 'Location', 'Description', ...CAT_SHORT, 'Total']];
   const body = rs.map(r => {
     const cats = COL_ORDER.map(cat => r.category === cat ? `€${r.amount.toFixed(2)}` : '');
-    const desc = r.nature ? `${setup.businessPurpose} — ${r.nature}` : setup.businessPurpose;
+    const desc = [setup.businessPurpose, r.nature, r.attendees ? `Attendees: ${r.attendees}` : ''].filter(Boolean).join(' — ');
     return [r.no, fmtDateDisplay(r.date), r.location, desc, ...cats, `€${r.amount.toFixed(2)}`];
   });
 
@@ -131,7 +131,7 @@ async function generatePDF(setup: TripSetup, rs: Receipt[]): Promise<string> {
 
     doc.setTextColor(30, 30, 30);
     doc.setFontSize(9);
-    const descText  = r.nature ? `${setup.businessPurpose} — ${r.nature}` : setup.businessPurpose;
+    const descText  = [setup.businessPurpose, r.nature, r.attendees ? `Attendees: ${r.attendees}` : ''].filter(Boolean).join(' — ');
     const descLines = doc.splitTextToSize(descText, RPW - 20);
     doc.text(descLines, 10, 30);
     const descEnd = 30 + descLines.length * 5;
@@ -708,6 +708,11 @@ function sheetHTML(): string {
         <label class="field-label">Nature of Expenditure</label>
         <input class="field-input" id="inp-nature" type="text" placeholder="e.g. Dinner with client, Taxi to airport" value="${draft.nature ?? ''}" />
       </div>
+      ${draft.category === 'Working Meals' || draft.category === 'Client Entertainment' ? `
+      <div class="field-group attendees-field">
+        <label class="field-label">Attendees <span class="field-label-req">required</span></label>
+        <input class="field-input" id="inp-attendees" type="text" placeholder="e.g. Jane Smith (Acme), John Doe (Client)" value="${draft.attendees ?? ''}" />
+      </div>` : ''}
       <div class="field-group">
         <label class="field-label">Category</label>
         <div class="cat-grid" id="cat-grid">${catButtons}</div>
@@ -796,6 +801,9 @@ function wireSheet(): void {
   document.getElementById('inp-nature')!.addEventListener('input', (e) => {
     draft.nature = (e.target as HTMLInputElement).value;
   });
+  document.getElementById('inp-attendees')?.addEventListener('input', (e) => {
+    draft.attendees = (e.target as HTMLInputElement).value;
+  });
   document.getElementById('inp-amount')!.addEventListener('input', (e) => {
     draft.amount = parseFloat((e.target as HTMLInputElement).value) || 0;
   });
@@ -817,10 +825,14 @@ function saveReceipt(): void {
   const nature   = (document.getElementById('inp-nature')   as HTMLInputElement).value.trim();
   const amount   = parseFloat((document.getElementById('inp-amount') as HTMLInputElement).value);
 
+  const attendees  = (document.getElementById('inp-attendees') as HTMLInputElement | null)?.value.trim() ?? draft.attendees ?? '';
+  const needsAttendees = draft.category === 'Working Meals' || draft.category === 'Client Entertainment';
+
   if (!date)                        { showToast('Please enter a date');          return; }
   if (!location)                    { showToast('Please enter a location');       return; }
   if (!draft.category)              { showToast('Please select a category');      return; }
   if (isNaN(amount) || amount <= 0) { showToast('Please enter a valid amount');  return; }
+  if (needsAttendees && !attendees) { showToast('Please list who attended');      return; }
   const hasFile = draft.fileType === 'pdf' ? !!draft.pdfDataUrl : !!draft.imageDataUrl;
   if (!hasFile) { showToast('Please attach a receipt or document'); return; }
 
@@ -836,12 +848,12 @@ function saveReceipt(): void {
   if (editingId) {
     const idx = receipts.findIndex(r => r.id === editingId);
     if (idx !== -1) {
-      receipts[idx] = { ...receipts[idx], date, location, nature, category: draft.category!, amount, ...fileFields };
+      receipts[idx] = { ...receipts[idx], date, location, nature, attendees: attendees || undefined, category: draft.category!, amount, ...fileFields };
     }
   } else {
     const newReceipt: Receipt = {
       id: crypto.randomUUID(), no: nextReceiptNo(receipts),
-      date, location, nature, category: draft.category!, amount,
+      date, location, nature, attendees: attendees || undefined, category: draft.category!, amount,
       ...fileFields,
     };
     receipts.push(newReceipt);

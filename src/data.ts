@@ -12,6 +12,7 @@ export interface Receipt {
   date:          string;  // YYYY-MM-DD
   location:      string;
   nature:        string;  // Nature of expenditure — what was bought
+  attendees?:    string;  // Names of attendees (for meal/entertainment categories)
   category:      ExpenseCategory;
   amount:        number;
   imageDataUrl:  string;  // compressed JPEG base64 (or empty string when fileType=pdf)

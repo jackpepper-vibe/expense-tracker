@@ -113,7 +113,7 @@ function buildDataRow(rowNum: number, receipt: Receipt | null, globalSeq: number
     numCell(`A${r}`, '121', receipt.no),
     numCell(`B${r}`, '122', isoToExcelSerial(receipt.date)),
     inlineStrCell(`C${r}`, '185', receipt.location),
-    inlineStrCell(`D${r}`, '186', receipt.nature),
+    inlineStrCell(`D${r}`, '186', receipt.attendees ? `${receipt.nature} | ${receipt.attendees}` : receipt.nature),
     amtCells,
     `<c r="M${r}" s="101"><f>SUM(E${r}:L${r})</f><v>${receipt.amount.toFixed(2)}</v></c>`,
     `</row>`,
