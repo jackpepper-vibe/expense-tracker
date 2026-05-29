@@ -426,7 +426,7 @@ function setupHTML(): string {
         <div class="setup-form">
           <div class="field-group">
             <label class="field-label">Your Name</label>
-            <input class="field-input" id="inp-name" type="text" placeholder="e.g. Kevin Breen" autocomplete="name" value="${lastSetup?.name ?? ''}" />
+            <input class="field-input" id="inp-name" type="text" placeholder="e.g. Jane Smith" autocomplete="name" value="${lastSetup?.name ?? ''}" />
           </div>
           <div class="field-group">
             <label class="field-label">Email Address</label>
