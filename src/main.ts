@@ -310,47 +310,7 @@ function tripsListHTML(): string {
           <span class="sheet-title">Settings</span>
           <button class="sheet-close" id="settings-close">✕</button>
         </div>
-        <div class="sheet-body">
-          <div class="settings-group">
-            <div class="settings-group-title">Appearance</div>
-            <div class="settings-row">
-              <span class="settings-label">Theme</span>
-              <div class="theme-seg">
-                <button class="theme-opt${theme === 'light' ? ' theme-opt--active' : ''}" data-theme="light">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                    <circle cx="12" cy="12" r="5"/>
-                    <line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
-                    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
-                    <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
-                    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-                  </svg>
-                  Light
-                </button>
-                <button class="theme-opt${theme === 'dark' ? ' theme-opt--active' : ''}" data-theme="dark">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-                  </svg>
-                  Dark
-                </button>
-              </div>
-            </div>
-          </div>
-          <div class="settings-group">
-            <div class="settings-group-title">Data</div>
-            <button class="settings-danger-row" id="btn-clear-data">
-              <div>
-                <div class="settings-danger-label">Clear All Data</div>
-                <div class="settings-danger-hint">Delete all trips and receipts from this device</div>
-              </div>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;opacity:0.7">
-                <polyline points="3 6 5 6 21 6"/>
-                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-                <path d="M10 11v6"/><path d="M14 11v6"/>
-                <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
-              </svg>
-            </button>
-          </div>
-        </div>
+        <div class="sheet-body" id="settings-body"></div>
       </div>
 
       <div class="confirm-overlay" id="confirm-overlay" hidden>
@@ -389,15 +349,98 @@ function wireTrips(): void {
 
 // ── Settings sheet ─────────────────────────────────────────────────────────────
 
+function settingsBodyHTML(): string {
+  return `
+    <div class="settings-group">
+      <div class="settings-group-title">Appearance</div>
+      <div class="settings-row">
+        <span class="settings-label">Theme</span>
+        <div class="theme-seg">
+          <button class="theme-opt${theme === 'light' ? ' theme-opt--active' : ''}" data-theme="light">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <circle cx="12" cy="12" r="5"/>
+              <line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
+              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+              <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
+              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+            </svg>
+            Light
+          </button>
+          <button class="theme-opt${theme === 'dark' ? ' theme-opt--active' : ''}" data-theme="dark">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+            </svg>
+            Dark
+          </button>
+        </div>
+      </div>
+    </div>
+    <div class="settings-group">
+      <div class="settings-group-title">Data</div>
+      <button class="settings-danger-row" id="btn-clear-data">
+        <div>
+          <div class="settings-danger-label">Clear All Data</div>
+          <div class="settings-danger-hint">Permanently delete all trips and receipts from this device</div>
+        </div>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;opacity:0.7">
+          <polyline points="3 6 5 6 21 6"/>
+          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+          <path d="M10 11v6"/><path d="M14 11v6"/>
+          <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+        </svg>
+      </button>
+    </div>
+    <div class="settings-group">
+      <div class="settings-group-title">About</div>
+      <button class="settings-nav-row" id="btn-help">
+        <div>
+          <div class="settings-label">Help &amp; Info</div>
+          <div class="settings-sub-label">Currencies, data storage, attendees</div>
+        </div>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;opacity:0.35">
+          <polyline points="9 18 15 12 9 6"/>
+        </svg>
+      </button>
+    </div>`;
+}
+
+function helpBodyHTML(): string {
+  return `
+    <div class="help-section">
+      <div class="help-section-title">💱 Multiple currencies</div>
+      <p class="help-section-text">When adding a receipt, tap the currency code next to the amount field to switch from Euro. Selecting a different currency fetches the live exchange rate from the European Central Bank — it is locked in at that moment so your report always reflects the rate at the time of travel.</p>
+      <p class="help-section-text">On the expense form, receipts are automatically grouped by currency so each page has one rate. Row 24 shows the amount in the currency you paid; row 25 converts it to Euro using the rate in cell M6. The summary sheet and all totals are always in Euro.</p>
+    </div>
+    <div class="help-section">
+      <div class="help-section-title">🍽️ Attendees for meals</div>
+      <p class="help-section-text">When a receipt is categorised as <span class="help-chip">Working Meals</span> or <span class="help-chip">Client Entertainment</span>, an Attendees field appears. This is required by your accounting department — list the names and company of everyone present. They appear alongside the nature of expenditure in column D of the expense form.</p>
+    </div>
+    <div class="help-section">
+      <div class="help-section-title">📱 Where your data lives</div>
+      <p class="help-section-text">Everything — trips, receipts, photos, and settings — is stored only on this device in your browser's local storage. Nothing is sent anywhere until you tap <span class="help-chip">Send Report</span>, at which point the PDF and Excel form are emailed to you.</p>
+      <p class="help-section-text">Clearing your browser's site data, or using <span class="help-chip">Clear All Data</span> in Settings, permanently deletes everything from this device. To access your data on another device, send a report first and save the files.</p>
+    </div>`;
+}
+
 function openSettings(): void {
+  const body = document.getElementById('settings-body')!;
+  body.innerHTML = settingsBodyHTML();
+
   const overlay = document.getElementById('settings-overlay')!;
   const sheet   = document.getElementById('settings-sheet')!;
   overlay.hidden = false;
   sheet.hidden   = false;
   requestAnimationFrame(() => sheet.classList.add('sheet--open'));
   overlay.addEventListener('click', closeSettings, { once: true });
-  document.getElementById('settings-close')!.addEventListener('click', closeSettings);
 
+  const closeBtn = document.getElementById('settings-close')!;
+  closeBtn.innerHTML = '✕';
+  closeBtn.onclick   = closeSettings;
+
+  wireSettingsBody();
+}
+
+function wireSettingsBody(): void {
   document.querySelectorAll<HTMLElement>('[data-theme]').forEach(btn => {
     btn.addEventListener('click', () => setTheme(btn.dataset['theme'] as 'dark' | 'light'));
   });
@@ -415,6 +458,25 @@ function openSettings(): void {
       render();
     });
   });
+
+  document.getElementById('btn-help')!.addEventListener('click', showHelp);
+}
+
+function showHelp(): void {
+  document.querySelector('#settings-sheet .sheet-title')!.textContent = 'Help & Info';
+  const closeBtn = document.getElementById('settings-close')!;
+  closeBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>`;
+  closeBtn.onclick   = showSettingsMain;
+  document.getElementById('settings-body')!.innerHTML = helpBodyHTML();
+}
+
+function showSettingsMain(): void {
+  document.querySelector('#settings-sheet .sheet-title')!.textContent = 'Settings';
+  const closeBtn = document.getElementById('settings-close')!;
+  closeBtn.innerHTML = '✕';
+  closeBtn.onclick   = closeSettings;
+  document.getElementById('settings-body')!.innerHTML = settingsBodyHTML();
+  wireSettingsBody();
 }
 
 function closeSettings(): void {
