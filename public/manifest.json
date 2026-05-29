@@ -8,6 +8,6 @@
   "theme_color": "#0a0f1e",
   "orientation": "portrait",
   "icons": [
-    { "src": "/expense_tracker_app_icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+    { "src": "/expense_tracker_app_icon2.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
   ]
 }
