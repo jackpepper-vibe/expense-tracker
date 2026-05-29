@@ -61,6 +61,15 @@ function emptyCell(ref: string, style: string): string {
   return `<c r="${ref}" s="${style}"/>`;
 }
 
+// Strip shared formula markup so we don't leave orphaned si= references.
+// Master: <f t="shared" ref="M9:M23" si="0">SUM(E9:L9)</f> → <f>SUM(E9:L9)</f>
+// Slave:  <f t="shared" si="0"/>                           → removed
+function stripSharedFormulas(xml: string): string {
+  xml = xml.replace(/<f\b[^/]*\bref="[^"]*"[^/]*>([^<]*)<\/f>/g, '<f>$1</f>');
+  xml = xml.replace(/<f\b[^>]*\bsi="\d+"[^>]*\/>/g, '');
+  return xml;
+}
+
 // Replace the entire cell element (handles self-closing and content forms)
 function replaceCell(xml: string, ref: string, replacement: string): string {
   const selfClose  = new RegExp(`<c r="${ref}"[^>]*/>`);
@@ -178,6 +187,7 @@ export async function generateExpenseFormXlsx(
     if (!file) { pageTotals.push({ E:0,F:0,G:0,H:0,I:0,J:0,K:0,L:0,M:0 }); continue; }
 
     let xml = await file.async('string');
+    xml = stripSharedFormulas(xml);
 
     // Employee name in C6
     xml = replaceCell(xml, 'C6', inlineStrCell('C6', '192', setup.name));
