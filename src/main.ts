@@ -535,6 +535,7 @@ function setupHTML(): string {
           <button class="btn-primary" id="btn-start">Start Trip</button>
         </div>
       </div>
+      <div class="toast" id="toast" hidden></div>
     </div>`;
 }
 
