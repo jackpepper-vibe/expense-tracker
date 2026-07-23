@@ -8,6 +8,16 @@ import {
 } from './data.ts';
 import { generateExpenseFormXlsx } from './expense-form.ts';
 
+// ── Email domain policy ──────────────────────────────────────────────────────────
+// Reports may only be sent to addresses on this corporate domain. Enforced here for
+// UX and, authoritatively, server-side in api/send-report.ts (client checks are
+// bypassable, so the server is the real boundary — keep both domains in sync).
+const ALLOWED_EMAIL_DOMAIN = 'amundi.com';
+
+function isAllowedEmail(email: string): boolean {
+  return email.trim().toLowerCase().endsWith(`@${ALLOWED_EMAIL_DOMAIN}`);
+}
+
 // ── File loading ───────────────────────────────────────────────────────────────
 
 async function readFileAsDataUrl(file: File): Promise<string> {
@@ -512,7 +522,7 @@ function setupHTML(): string {
           </div>
           <div class="field-group">
             <label class="field-label">Email Address</label>
-            <input class="field-input" id="inp-email" type="email" placeholder="you@example.com" autocomplete="email" value="${lastSetup?.email ?? ''}" />
+            <input class="field-input" id="inp-email" type="email" placeholder="you@amundi.com" autocomplete="email" value="${lastSetup?.email ?? ''}" />
           </div>
           <div class="field-group">
             <label class="field-label">Trip Name</label>
@@ -541,6 +551,7 @@ function wireSetup(): void {
     const businessPurpose = (document.getElementById('inp-purpose') as HTMLInputElement).value.trim();
     if (!name || !email || !tripName || !businessPurpose) { showToast('Please fill in all fields'); return; }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showToast('Enter a valid email address'); return; }
+    if (!isAllowedEmail(email)) { showToast(`Email must end in @${ALLOWED_EMAIL_DOMAIN}`); return; }
 
     const newTrip: StoredTrip = {
       id:       crypto.randomUUID(),

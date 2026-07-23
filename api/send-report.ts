@@ -1,5 +1,15 @@
 export const config = { runtime: 'edge' };
 
+// Reports may only be delivered to addresses on this corporate domain. This is the
+// authoritative check — the client performs the same validation for UX, but it is
+// bypassable, so every request is re-validated here. Keep in sync with
+// ALLOWED_EMAIL_DOMAIN in src/main.ts.
+const ALLOWED_EMAIL_DOMAIN = 'amundi.com';
+
+function isAllowedEmail(email: string): boolean {
+  return email.trim().toLowerCase().endsWith(`@${ALLOWED_EMAIL_DOMAIN}`);
+}
+
 export default async function handler(req: Request): Promise<Response> {
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405 });
@@ -24,6 +34,13 @@ export default async function handler(req: Request): Promise<Response> {
 
   if (!to || !name || !tripName || !pdfBase64) {
     return new Response(JSON.stringify({ error: 'Missing required fields' }), { status: 400 });
+  }
+
+  if (!isAllowedEmail(to)) {
+    return new Response(
+      JSON.stringify({ error: `Reports may only be sent to @${ALLOWED_EMAIL_DOMAIN} addresses` }),
+      { status: 403 },
+    );
   }
 
   const apiKey = process.env.RESEND_API_KEY;
