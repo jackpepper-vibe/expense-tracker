@@ -7,6 +7,7 @@ import {
   type StoredTrip, type TripSetup, type Receipt, type ExpenseCategory,
 } from './data.ts';
 import { generateExpenseFormXlsx } from './expense-form.ts';
+import { inject } from '@vercel/analytics';
 
 // ── Email domain policy ──────────────────────────────────────────────────────────
 // Reports may only be sent to addresses on this corporate domain. Enforced here for
@@ -1113,6 +1114,9 @@ function showToast(msg: string): void {
 }
 
 // ── Boot ───────────────────────────────────────────────────────────────────────
+
+// Initialize Vercel Web Analytics
+inject();
 
 applyTheme();
 render();
