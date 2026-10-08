@@ -7,6 +7,7 @@ import {
   type StoredTrip, type TripSetup, type Receipt, type ExpenseCategory,
 } from './data.ts';
 import { generateExpenseFormXlsx } from './expense-form.ts';
+import { saveBackup, readBackupFile, noteRestoredBackup, mergeTrips, lastBackupAt, backupIsDue, BackupError } from './backup.ts';
 
 // ── Email domain policy ──────────────────────────────────────────────────────────
 // Reports may only be sent to addresses on this corporate domain. Enforced here for
@@ -310,6 +311,7 @@ function tripsListHTML(): string {
             <polyline points="9 18 15 12 9 6"/>
           </svg>
         </button>
+        ${backupIsDue(trips) ? backupBannerHTML() : ''}
         ${activeHTML}${submittedHTML}
       </div>
 
@@ -338,7 +340,26 @@ function tripsListHTML(): string {
     </div>`;
 }
 
+function backupBannerHTML(): string {
+  return `
+    <button class="backup-banner" id="btn-backup-banner">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0">
+        <path d="M12 3v12"/><polyline points="7 10 12 15 17 10"/><path d="M5 21h14"/>
+      </svg>
+      <div class="backup-banner-body">
+        <span class="backup-banner-label">Back up your trips</span>
+        <span class="backup-banner-hint">${lastBackupDescription()} · trips are lost if this app is removed</span>
+      </div>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;opacity:0.5">
+        <polyline points="9 18 15 12 9 6"/>
+      </svg>
+    </button>`;
+}
+
 function wireTrips(): void {
+  document.getElementById('btn-backup-banner')?.addEventListener('click', async () => {
+    if (await runBackup()) render();
+  });
   document.getElementById('btn-new-trip')!.addEventListener('click', () => {
     view = 'setup';
     render();
@@ -387,6 +408,25 @@ function settingsBodyHTML(): string {
     </div>
     <div class="settings-group">
       <div class="settings-group-title">Data</div>
+      <button class="settings-nav-row" id="btn-backup">
+        <div>
+          <div class="settings-label">Back Up All Trips</div>
+          <div class="settings-sub-label">${lastBackupDescription()} · save the file to Files or iCloud Drive</div>
+        </div>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;opacity:0.5">
+          <path d="M12 3v12"/><polyline points="7 10 12 15 17 10"/><path d="M5 21h14"/>
+        </svg>
+      </button>
+      <button class="settings-nav-row" id="btn-restore">
+        <div>
+          <div class="settings-label">Restore from Backup</div>
+          <div class="settings-sub-label">Adds trips from a backup file — nothing on this device is removed</div>
+        </div>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;opacity:0.5">
+          <path d="M12 21V9"/><polyline points="7 14 12 9 17 14"/><path d="M5 3h14"/>
+        </svg>
+      </button>
+      <input type="file" id="inp-restore" accept=".json,application/json" hidden />
       <button class="settings-danger-row" id="btn-clear-data">
         <div>
           <div class="settings-danger-label">Clear All Data</div>
@@ -428,7 +468,8 @@ function helpBodyHTML(): string {
     <div class="help-section">
       <div class="help-section-title">📱 Where your data lives</div>
       <p class="help-section-text">Everything — trips, receipts, photos, and settings — is stored only on this device in your browser's local storage. Nothing is sent anywhere until you tap <span class="help-chip">Send Report</span>, at which point the PDF and Excel form are emailed to you.</p>
-      <p class="help-section-text">Clearing your browser's site data, or using <span class="help-chip">Clear All Data</span> in Settings, permanently deletes everything from this device. To access your data on another device, send a report first and save the files.</p>
+      <p class="help-section-text">Removing the app from your home screen, clearing your browser's site data, or using <span class="help-chip">Clear All Data</span> in Settings permanently deletes everything from this device.</p>
+      <p class="help-section-text">Use <span class="help-chip">Back Up All Trips</span> in Settings to save a single file with every trip, receipt and photo — on iPhone choose <em>Save to Files</em> and pick iCloud Drive. <span class="help-chip">Restore from Backup</span> adds the trips back on this or any other device; it never removes anything already there.</p>
     </div>`;
 }
 
@@ -469,7 +510,72 @@ function wireSettingsBody(): void {
     });
   });
 
+  document.getElementById('btn-backup')!.addEventListener('click', async () => {
+    if (await runBackup()) showSettingsMain();
+  });
+
+  const restoreInput = document.getElementById('inp-restore') as HTMLInputElement;
+  document.getElementById('btn-restore')!.addEventListener('click', () => restoreInput.click());
+  restoreInput.addEventListener('change', () => {
+    const file = restoreInput.files?.[0];
+    restoreInput.value = '';
+    if (file) void restoreFromFile(file);
+  });
+
   document.getElementById('btn-help')!.addEventListener('click', showHelp);
+}
+
+// ── Backup & restore ───────────────────────────────────────────────────────────
+
+function lastBackupDescription(): string {
+  const last = lastBackupAt();
+  if (!last) return 'Never backed up';
+  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((startOfDay(new Date()) - startOfDay(last)) / 86_400_000);
+  if (days <= 0) return 'Last backup today';
+  if (days === 1) return 'Last backup yesterday';
+  return `Last backup ${days} days ago`;
+}
+
+/** Saves a backup of every trip. Returns true when a backup was made. */
+async function runBackup(): Promise<boolean> {
+  if (trips.length === 0) { showToast('No trips to back up yet'); return false; }
+  try {
+    const outcome = await saveBackup(trips);
+    if (outcome === 'cancelled') return false;
+    showToast(outcome === 'shared' ? 'Backup ready — keep the file somewhere safe' : 'Backup downloaded');
+    return true;
+  } catch {
+    showToast('Could not create backup');
+    return false;
+  }
+}
+
+async function restoreFromFile(file: File): Promise<void> {
+  try {
+    const backup = await readBackupFile(file);
+    const { trips: merged, summary } = mergeTrips(trips, backup.trips);
+    if (summary.tripsAdded === 0 && summary.receiptsAdded === 0) {
+      noteRestoredBackup(backup.exportedAt);
+      showToast('Everything in this backup is already on this device');
+      return;
+    }
+    saveTrips(merged);
+    trips = merged;
+    noteRestoredBackup(backup.exportedAt);
+    view = 'list';
+    render();
+    const parts = [
+      summary.tripsAdded    > 0 ? `${summary.tripsAdded} trip${summary.tripsAdded !== 1 ? 's' : ''}` : '',
+      summary.receiptsAdded > 0 ? `${summary.receiptsAdded} receipt${summary.receiptsAdded !== 1 ? 's' : ''}` : '',
+    ].filter(Boolean);
+    showToast(`Restored ${parts.join(' and ')}`);
+  } catch (err) {
+    if (err instanceof BackupError) showToast(err.message);
+    else if (err instanceof DOMException && err.name === 'QuotaExceededError') {
+      showToast('Not enough storage on this device to restore this backup');
+    } else showToast('Could not restore backup');
+  }
 }
 
 function showHelp(): void {
@@ -1117,3 +1223,5 @@ function showToast(msg: string): void {
 
 applyTheme();
 render();
+// Ask the browser to exempt this app's storage from automatic eviction.
+void navigator.storage?.persist?.().catch(() => false);
