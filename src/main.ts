@@ -7,6 +7,8 @@ import {
   type StoredTrip, type TripSetup, type Receipt, type ExpenseCategory,
 } from './data.ts';
 import { generateExpenseFormXlsx } from './expense-form.ts';
+import { AttendeeDirectory, parseAttendees, joinAttendees } from './attendees.ts';
+import { AttendeeAutocomplete } from './attendee-autocomplete.ts';
 import { saveBackup, readBackupFile, noteRestoredBackup, mergeTrips, lastBackupAt, backupIsDue, BackupError } from './backup.ts';
 
 // ── Email domain policy ──────────────────────────────────────────────────────────
@@ -220,6 +222,7 @@ function setTheme(t: 'dark' | 'light'): void {
 type View = 'list' | 'setup' | 'receipts';
 
 let trips:         StoredTrip[] = loadTrips();
+let attendeeDirectory = AttendeeDirectory.load(trips);
 let currentTripId: string | null = null;
 let receipts:      Receipt[] = [];
 let draft:         Partial<Receipt> & { analysing?: boolean; fetchingRate?: boolean } = {};
@@ -464,6 +467,7 @@ function helpBodyHTML(): string {
     <div class="help-section">
       <div class="help-section-title">🍽️ Attendees for meals</div>
       <p class="help-section-text">When a receipt is categorised as <span class="help-chip">Working Meals</span> or <span class="help-chip">Client Entertainment</span>, an Attendees field appears. This is required by your accounting department — list the names and company of everyone present. They appear alongside the nature of expenditure in column D of the expense form.</p>
+      <p class="help-section-text">The app remembers everyone you've entered. Type the first letters of a first name, surname or company and pick from the suggestions — the most frequent people come first, and a comma is added so you can go straight on to the next name. Tap the small <strong>×</strong> beside a suggestion to stop suggesting that person; it doesn't change any saved receipt.</p>
     </div>
     <div class="help-section">
       <div class="help-section-title">📱 Where your data lives</div>
@@ -503,6 +507,7 @@ function wireSettingsBody(): void {
     document.getElementById('confirm-ok')!.addEventListener('click', () => {
       localStorage.clear();
       trips = [];
+      attendeeDirectory = AttendeeDirectory.load(trips);
       theme = 'dark';
       applyTheme();
       view = 'list';
@@ -541,7 +546,7 @@ function lastBackupDescription(): string {
 async function runBackup(): Promise<boolean> {
   if (trips.length === 0) { showToast('No trips to back up yet'); return false; }
   try {
-    const outcome = await saveBackup(trips);
+    const outcome = await saveBackup(trips, attendeeDirectory.all());
     if (outcome === 'cancelled') return false;
     showToast(outcome === 'shared' ? 'Backup ready — keep the file somewhere safe' : 'Backup downloaded');
     return true;
@@ -555,6 +560,7 @@ async function restoreFromFile(file: File): Promise<void> {
   try {
     const backup = await readBackupFile(file);
     const { trips: merged, summary } = mergeTrips(trips, backup.trips);
+    attendeeDirectory.merge(backup.attendees);
     if (summary.tripsAdded === 0 && summary.receiptsAdded === 0) {
       noteRestoredBackup(backup.exportedAt);
       showToast('Everything in this backup is already on this device');
@@ -917,7 +923,8 @@ function sheetHTML(): string {
       ${draft.category === 'Working Meals' || draft.category === 'Client Entertainment' ? `
       <div class="field-group attendees-field">
         <label class="field-label">Attendees <span class="field-label-req">required</span></label>
-        <input class="field-input" id="inp-attendees" type="text" placeholder="e.g. Jane Smith (Acme), John Doe (Client)" value="${draft.attendees ?? ''}" />
+        <input class="field-input" id="inp-attendees" type="text" placeholder="Start typing a name, e.g. Jane Smith (Acme)" value="${draft.attendees ?? ''}"
+               autocomplete="off" autocapitalize="words" autocorrect="off" spellcheck="false" />
       </div>` : ''}
       <div class="field-group">
         <label class="field-label">Category</label>
@@ -1018,9 +1025,13 @@ function wireSheet(): void {
   document.getElementById('inp-nature')!.addEventListener('input', (e) => {
     draft.nature = (e.target as HTMLInputElement).value;
   });
-  document.getElementById('inp-attendees')?.addEventListener('input', (e) => {
-    draft.attendees = (e.target as HTMLInputElement).value;
-  });
+  const attendeesInput = document.getElementById('inp-attendees') as HTMLInputElement | null;
+  if (attendeesInput) {
+    attendeesInput.addEventListener('input', () => { draft.attendees = attendeesInput.value; });
+    new AttendeeAutocomplete(attendeesInput, attendeeDirectory, {
+      onForget: name => showToast(`${name} won't be suggested again`),
+    });
+  }
   document.getElementById('inp-currency')!.addEventListener('change', async () => {
     const currency = (document.getElementById('inp-currency') as HTMLSelectElement).value;
     draft.currency = currency;
@@ -1077,7 +1088,8 @@ function saveReceipt(): void {
   const exchangeRate = draft.exchangeRate ?? 1;
   const amountEur    = currency === 'EUR' ? amount : amount / exchangeRate;
 
-  const attendees  = (document.getElementById('inp-attendees') as HTMLInputElement | null)?.value.trim() ?? draft.attendees ?? '';
+  const attendeesRaw = (document.getElementById('inp-attendees') as HTMLInputElement | null)?.value ?? draft.attendees ?? '';
+  const attendees    = joinAttendees(parseAttendees(attendeesRaw));
   const needsAttendees = draft.category === 'Working Meals' || draft.category === 'Client Entertainment';
 
   if (!date)                        { showToast('Please enter a date');          return; }
@@ -1096,6 +1108,11 @@ function saveReceipt(): void {
     pdfDataUrl:   draft.pdfDataUrl,
     pdfFileName:  draft.pdfFileName,
   };
+
+  if (needsAttendees) {
+    const previous = editingId ? receipts.find(r => r.id === editingId)?.attendees : undefined;
+    attendeeDirectory.recordReceipt(attendees, previous);
+  }
 
   if (editingId) {
     const idx = receipts.findIndex(r => r.id === editingId);

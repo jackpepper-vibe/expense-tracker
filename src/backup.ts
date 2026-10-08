@@ -7,6 +7,7 @@
 // overwrites anything already on the device.
 
 import { nextReceiptNo, type StoredTrip, type Receipt } from './data.ts';
+import { isEntry, entriesFromTrips, type AttendeeEntry } from './attendees.ts';
 
 const BACKUP_FORMAT  = 'expense-tracker-backup';
 const BACKUP_VERSION = 1;
@@ -20,6 +21,8 @@ interface BackupFile {
   version:    number;
   exportedAt: string;
   trips:      StoredTrip[];
+  /** Attendee suggestion history (absent in backups made before it existed). */
+  attendees?: AttendeeEntry[];
 }
 
 /** A backup file that can't be read; `message` is safe to show the user. */
@@ -60,8 +63,8 @@ function backupFileName(at: Date): string {
   return `expense-tracker-backup-${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}.json`;
 }
 
-function createBackupFile(trips: StoredTrip[], at: Date): File {
-  const payload: BackupFile = { format: BACKUP_FORMAT, version: BACKUP_VERSION, exportedAt: at.toISOString(), trips };
+function createBackupFile(trips: StoredTrip[], attendees: AttendeeEntry[], at: Date): File {
+  const payload: BackupFile = { format: BACKUP_FORMAT, version: BACKUP_VERSION, exportedAt: at.toISOString(), trips, attendees };
   return new File([JSON.stringify(payload)], backupFileName(at), { type: 'application/json' });
 }
 
@@ -70,9 +73,9 @@ function createBackupFile(trips: StoredTrip[], at: Date): File {
  * offers "Save to Files" / iCloud Drive), otherwise a file download.
  * Must be called from a user gesture.
  */
-export async function saveBackup(trips: StoredTrip[]): Promise<SaveOutcome> {
+export async function saveBackup(trips: StoredTrip[], attendees: AttendeeEntry[]): Promise<SaveOutcome> {
   const now  = new Date();
-  const file = createBackupFile(trips, now);
+  const file = createBackupFile(trips, attendees, now);
 
   if (navigator.canShare?.({ files: [file] })) {
     try {
@@ -128,6 +131,7 @@ function isTrip(v: unknown): v is StoredTrip {
 
 export interface BackupContents {
   trips:      StoredTrip[];
+  attendees:  AttendeeEntry[];
   exportedAt: Date | null;
 }
 
@@ -149,7 +153,10 @@ export async function readBackupFile(file: File): Promise<BackupContents> {
     throw new BackupError('This backup file is damaged and could not be restored');
   }
   const exportedAt = typeof data['exportedAt'] === 'string' ? new Date(data['exportedAt']) : null;
-  return { trips, exportedAt: exportedAt && !Number.isNaN(exportedAt.getTime()) ? exportedAt : null };
+  const attendees = Array.isArray(data['attendees'])
+    ? data['attendees'].filter(isEntry)
+    : entriesFromTrips(trips);   // older backup: rebuild from its receipts
+  return { trips, attendees, exportedAt: exportedAt && !Number.isNaN(exportedAt.getTime()) ? exportedAt : null };
 }
 
 /**

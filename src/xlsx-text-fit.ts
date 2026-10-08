@@ -56,7 +56,7 @@ function columnWidthPt(box: CellBox): number {
 
 function textWidthPt(text: string, size: number): number {
   let em = 0;
-  for (const ch of text.normalize('NFD').replace(/[̀-ͯ]/g, '')) {
+  for (const ch of text.normalize('NFD').replace(/[\u0300-\u036f]/g, '')) {
     em += CHAR_WIDTHS[ch] ?? (ch >= '0' && ch <= '9' ? DIGIT_WIDTH : DEFAULT_WIDTH);
   }
   return (em / 1000) * size;
