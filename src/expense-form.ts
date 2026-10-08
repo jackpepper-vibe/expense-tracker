@@ -1,4 +1,6 @@
 import type { TripSetup, Receipt, ExpenseCategory } from './data.ts';
+import type JSZip from 'jszip';
+import { fitFontSize, registerFitStyles, type CellBox, type FitStyleSet } from './xlsx-text-fit.ts';
 
 // Expenses sheet column per category
 const CAT_COL: Record<ExpenseCategory, string> = {
@@ -37,7 +39,18 @@ const CURRENCY_NAMES: Record<string, string> = {
 const DATA_ROW_FIRST = 9;
 const DATA_ROW_LAST  = 21;   // 13 data rows per sheet
 const ROWS_PER_SHEET = DATA_ROW_LAST - DATA_ROW_FIRST + 1;
+const DATA_ROW_HEIGHT_PT = 30;
 const AMT_COLS       = ['E','F','G','H','I','J','K','L'] as const;
+
+// Template cell styles for the free-text data columns
+const LOCATION_XF = 185;   // C: Location
+const DETAILS_XF  = 186;   // D: Business purpose & details
+
+/** Wrap-to-fit styles and cell geometry for the free-text columns. */
+interface TextFit {
+  location: { styles: FitStyleSet; box: CellBox };
+  details:  { styles: FitStyleSet; box: CellBox };
+}
 
 type ColTotals = Record<string, number>;
 
@@ -107,14 +120,18 @@ function updateCachedValue(xml: string, ref: string, value: number): string {
 
 // ── Row builder ───────────────────────────────────────────────────────────────
 
-function buildDataRow(rowNum: number, receipt: Receipt | null, globalSeq: number): string {
+function fittedTextCell(ref: string, text: string, fit: TextFit[keyof TextFit]): string {
+  return inlineStrCell(ref, String(fit.styles[fitFontSize(text, fit.box)]), text);
+}
+
+function buildDataRow(rowNum: number, receipt: Receipt | null, globalSeq: number, fit: TextFit): string {
   const r       = rowNum;
   const eStyle  = r >= 17 ? '188' : '125';
   const flStyle = r >= 17 ? '189' : '126';
 
   if (!receipt) {
     return [
-      `<row r="${r}" s="1" customFormat="1" ht="30" customHeight="1">`,
+      `<row r="${r}" s="1" customFormat="1" ht="${DATA_ROW_HEIGHT_PT}" customHeight="1">`,
       numCell(`A${r}`, '121', globalSeq),
       emptyCell(`B${r}`, '122'),
       emptyCell(`C${r}`, '185'),
@@ -132,11 +149,11 @@ function buildDataRow(rowNum: number, receipt: Receipt | null, globalSeq: number
   }).join('');
 
   return [
-    `<row r="${r}" s="1" customFormat="1" ht="30" customHeight="1">`,
+    `<row r="${r}" s="1" customFormat="1" ht="${DATA_ROW_HEIGHT_PT}" customHeight="1">`,
     numCell(`A${r}`, '121', receipt.no),
     numCell(`B${r}`, '122', isoToExcelSerial(receipt.date)),
-    inlineStrCell(`C${r}`, '185', receipt.location),
-    inlineStrCell(`D${r}`, '186', receipt.attendees ? `${receipt.nature} | ${receipt.attendees}` : receipt.nature),
+    fittedTextCell(`C${r}`, receipt.location, fit.location),
+    fittedTextCell(`D${r}`, receipt.attendees ? `${receipt.nature} | ${receipt.attendees}` : receipt.nature, fit.details),
     amtCells,
     `<c r="M${r}" s="101"><f>SUM(E${r}:L${r})</f><v>${receipt.amount.toFixed(2)}</v></c>`,
     `</row>`,
@@ -209,6 +226,32 @@ function sumTotals(pages: ColTotals[]): ColTotals {
   return t;
 }
 
+// ── Text fitting setup ────────────────────────────────────────────────────────
+
+// Reads the free-text cells' geometry from the template (all Expenses sheets
+// share one layout) and registers wrap-to-fit styles for them in styles.xml.
+async function prepareTextFit(zip: JSZip): Promise<TextFit> {
+  const sheetXml  = await zip.file(EXPENSES_SHEET_PATHS[0])!.async('string');
+  const stylesXml = await zip.file('xl/styles.xml')!.async('string');
+
+  const colWidth = (col: number): number =>
+    Number(sheetXml.match(new RegExp(`<col min="${col}" max="${col}"[^>]*\\bwidth="([\\d.]+)"`))?.[1]);
+  const locationBox: CellBox = { widthChars: colWidth(3), heightPt: DATA_ROW_HEIGHT_PT };
+  const detailsBox:  CellBox = { widthChars: colWidth(4), heightPt: DATA_ROW_HEIGHT_PT };
+  if (!(locationBox.widthChars > 0 && detailsBox.widthChars > 0)) {
+    throw new Error('Expense form template: could not read data column widths');
+  }
+
+  const location = registerFitStyles(stylesXml, LOCATION_XF);
+  const details  = registerFitStyles(location.xml, DETAILS_XF);
+  zip.file('xl/styles.xml', details.xml);
+
+  return {
+    location: { styles: location.styles, box: locationBox },
+    details:  { styles: details.styles,  box: detailsBox },
+  };
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 
 export async function generateExpenseFormXlsx(
@@ -231,6 +274,10 @@ export async function generateExpenseFormXlsx(
       .replace(/<calcPr([^/]*)\/>/, '<calcPr$1 fullCalcOnLoad="1"/>');
     zip.file('xl/workbook.xml', wbXml);
   }
+
+  // ── Wrap-to-fit styles for the free-text columns ──────────────────────────
+
+  const fit = await prepareTextFit(zip);
 
   // ── Process each Expenses sheet ───────────────────────────────────────────
 
@@ -259,7 +306,7 @@ export async function generateExpenseFormXlsx(
     const pageReceipts = page?.receipts ?? [];
     for (let ri = 0; ri < ROWS_PER_SHEET; ri++) {
       const rowNum = DATA_ROW_FIRST + ri;
-      xml = replaceRow(xml, rowNum, buildDataRow(rowNum, pageReceipts[ri] ?? null, si * ROWS_PER_SHEET + ri + 1));
+      xml = replaceRow(xml, rowNum, buildDataRow(rowNum, pageReceipts[ri] ?? null, si * ROWS_PER_SHEET + ri + 1, fit));
     }
 
     // Row 24: total in original currency (the template's M6 formula converts to EUR in row 25)
