@@ -1,6 +1,6 @@
 import './style.css';
 import {
-  loadTrips, saveTrips, nextReceiptNo,
+  loadTrips, saveTrips, nextReceiptNo, orderReceiptsForReport,
   fmtDateDisplay, todayISO,
   CATEGORIES, CAT_LABELS, CAT_COLOURS,
   CURRENCIES, CURRENCY_SYMBOLS,
@@ -1041,6 +1041,7 @@ async function sendReport(): Promise<void> {
   const setup = tripSetup();
   if (!setup) return;
   if (receipts.length === 0) { showToast('No receipts to send'); return; }
+  const reportReceipts = orderReceiptsForReport(receipts);
 
   const overlay = document.getElementById('send-overlay')!;
   const msg     = document.getElementById('send-msg')!;
@@ -1048,13 +1049,13 @@ async function sendReport(): Promise<void> {
 
   try {
     msg.textContent = 'Generating PDF…';
-    const pdfDataUri = await generatePDF(setup, receipts);
+    const pdfDataUri = await generatePDF(setup, reportReceipts);
     const pdfBase64  = pdfDataUri.split(',')[1];
 
     msg.textContent = 'Generating expense form…';
-    const xlsxBase64 = await generateExpenseFormXlsx(setup, receipts);
+    const xlsxBase64 = await generateExpenseFormXlsx(setup, reportReceipts);
 
-    const pdfAttachments = receipts
+    const pdfAttachments = reportReceipts
       .filter(r => r.fileType === 'pdf' && r.pdfDataUrl)
       .map(r => ({
         filename: r.pdfFileName ?? `receipt_${r.no}.pdf`,

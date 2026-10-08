@@ -114,6 +114,17 @@ export function nextReceiptNo(receipts: Receipt[]): number {
   return receipts.length === 0 ? 1 : Math.max(...receipts.map(r => r.no)) + 1;
 }
 
+/**
+ * Receipts as they appear in an outgoing report: chronological by transaction
+ * date (entry order breaks ties), renumbered 1..N so the expense form, the PDF
+ * summary and each receipt page share one sequence. Stored receipts are untouched.
+ */
+export function orderReceiptsForReport(receipts: Receipt[]): Receipt[] {
+  return [...receipts]
+    .sort((a, b) => a.date.localeCompare(b.date) || a.no - b.no)
+    .map((r, i) => ({ ...r, no: i + 1 }));
+}
+
 // ── Formatting helpers ────────────────────────────────────────────────────────
 
 export function fmtDateDisplay(iso: string): string {
